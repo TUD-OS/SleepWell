@@ -1,0 +1,6 @@
+config BR2_PACKAGE_MWAIT_MODULE
+        bool "mwait_module"
+        depends on BR2_LINUX_KERNEL
+        help
+                Compile and inject the module for MWAIT measurements 
+                into the filesystem image.
