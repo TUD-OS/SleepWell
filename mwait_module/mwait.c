@@ -1,11 +1,51 @@
 #include <linux/module.h>
 #include <linux/kernel.h>
+#include <asm/apic.h>
+#include <linux/delay.h>
 
 MODULE_LICENSE("GPL");
+
+volatile struct {
+    char padding[8192]; 
+    int trigger;
+    char padding2[8192];
+} test;
+
+void test_function(void* info){
+    int this_cpu = get_cpu();
+
+    local_irq_disable();
+    if(this_cpu) {
+        for(int i = 0; i<10; ++i) {
+            clflush(&test.trigger);
+
+            asm volatile("monitor;"
+		     :: "a" (&test.trigger), "c" (0), "d"(0));
+            asm volatile("mwait;"
+		     :: "a" (0), "c" (0));
+
+            printk(KERN_INFO "CPU %i: Iteration %i, trigger value: %i\n", this_cpu, i, test.trigger);
+        }
+    } else {
+        for(int i = 0; i<10; ++i) {
+            mdelay(1000);
+            printk(KERN_INFO "CPU %i: Triggering iteration %i, trigger value: %i\n", this_cpu, i, i);
+            test.trigger = i;
+        }
+    }
+    local_irq_enable();
+}
 
 static int myinit(void)
 {
     printk(KERN_INFO "mwait init\n");
+    test.trigger = -1;
+
+    unsigned int cpus_online = num_online_cpus();
+    printk(KERN_INFO "Online Cpus: %i\n", cpus_online);
+
+    on_each_cpu(test_function, NULL, 1);
+
     return 0;
 }
 
