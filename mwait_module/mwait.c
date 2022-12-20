@@ -36,15 +36,30 @@ void test_function(void* info){
     local_irq_enable();
 }
 
+bool cond_function(int cpu, void *info) {
+    return cpu < 2;
+}
+
 static int myinit(void)
 {
     printk(KERN_INFO "mwait init\n");
     test.trigger = -1;
 
+    int a = 0x1, b, c, d;
+    asm ( "cpuid;"
+        : "=a" (a), "=b" (b), "=c" (c), "=d" (d)
+        : "0" (a)
+    );
+    if(!(c & 0b1000)) {
+        printk(KERN_INFO "Mwait not supported.\n");
+        return 0;
+    }
+    printk(KERN_INFO "Mwait supported, continuing.\n");
+
     unsigned int cpus_online = num_online_cpus();
     printk(KERN_INFO "Online Cpus: %i\n", cpus_online);
 
-    on_each_cpu(test_function, NULL, 1);
+    on_each_cpu_cond(cond_function, test_function, NULL, 1);
 
     return 0;
 }
