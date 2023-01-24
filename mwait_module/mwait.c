@@ -17,8 +17,7 @@ void test_function(void* info){
     local_irq_disable();
     if(this_cpu) {
         for(int i = 0; i<10; ++i) {
-            clflush(&test.trigger);
-
+            
             asm volatile("monitor;"
 		     :: "a" (&test.trigger), "c" (0), "d"(0));
             asm volatile("mwait;"
@@ -37,7 +36,7 @@ void test_function(void* info){
 }
 
 bool cond_function(int cpu, void *info) {
-    return cpu < 2;
+    return cpu < 4;
 }
 
 static int myinit(void)
