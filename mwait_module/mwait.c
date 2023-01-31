@@ -1,7 +1,10 @@
 #include <linux/module.h>
 #include <linux/kernel.h>
 #include <asm/apic.h>
+#include <asm/msr.h>
 #include <linux/delay.h>
+
+#define MSR_PKG_ENERGY_STATUS 0x611
 
 MODULE_LICENSE("GPL");
 
@@ -10,6 +13,7 @@ volatile int trigger;
 void test_function(void *info)
 {
     int this_cpu = get_cpu();
+    unsigned long long total_energy_consumed;
 
     local_irq_disable();
     if (this_cpu)
@@ -28,7 +32,8 @@ void test_function(void *info)
         for (int i = 0; i < 10; ++i)
         {
             mdelay(1000);
-            printk(KERN_INFO "CPU %i: Triggering iteration %i, trigger value: %i\n", this_cpu, i, i);
+            rdmsrl_safe(MSR_PKG_ENERGY_STATUS, &total_energy_consumed);
+            printk(KERN_INFO "CPU %i: Triggering iteration %i, trigger value: %i, total energy consumed: %i\n", this_cpu, i, i, total_energy_consumed);
             trigger = i;
         }
     }
