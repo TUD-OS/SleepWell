@@ -45,7 +45,7 @@ bool cond_function(int cpu, void *info)
     return cpu < 4;
 }
 
-static int myinit(void)
+static int mwait_init(void)
 {
     printk(KERN_INFO "mwait init\n");
     trigger = -1;
@@ -69,10 +69,10 @@ static int myinit(void)
     return 0;
 }
 
-static void myexit(void)
+static void mwait_exit(void)
 {
     printk(KERN_INFO "mwait exit\n");
 }
 
-module_init(myinit)
-module_exit(myexit)
+module_init(mwait_init)
+module_exit(mwait_exit)
