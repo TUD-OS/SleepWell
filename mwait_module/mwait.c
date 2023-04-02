@@ -82,6 +82,17 @@ static int mwait_init(void)
     }
     printk(KERN_INFO "Mwait supported, continuing.\n");
 
+    a = 0x6;
+    asm("cpuid;"
+        : "=a"(a), "=b"(b), "=c"(c), "=d"(d)
+        : "0"(a));
+    if (!(a & 0b100))
+    {
+        printk(KERN_INFO "APIC Timer affected by C-States, aborting.\n");
+        return 0;
+    }
+    printk(KERN_INFO "APIC Timer not affected by C-States.\n");
+
     unsigned cpus_online = num_online_cpus();
     printk(KERN_INFO "Online Cpus: %i\n", cpus_online);
 
