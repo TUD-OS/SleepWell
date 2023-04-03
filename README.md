@@ -17,11 +17,16 @@ In ```.config``` set:
 make
 ```
 
-## Compilation
+## Compile Kernel Module
 
 ```sh
-rm -r output/build/mwait_module-0.1
-make
+make mwait_module-rebuild
+```
+
+## Compile Kernel
+
+```sh
+make linux-rebuild
 ```
 
 ## Starting Qemu
