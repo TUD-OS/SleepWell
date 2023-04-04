@@ -12,6 +12,7 @@ In ```.config``` set:
 * BR2_ROOTFS_OVERLAY="../overlay"
 * BR2_PACKAGE_OVERRIDE_FILE="../buildroot_override"
 * BR2_PACKAGE_HOST_LINUX_HEADERS_CUSTOM_6_1=y
+* BR2_ENABLE_DEBUG=y
 
 ```sh
 make
@@ -20,7 +21,7 @@ make
 ## Compile Kernel Module
 
 ```sh
-make mwait_module-rebuild
+make mwait_module-dirclean && make
 ```
 
 ## Compile Kernel
