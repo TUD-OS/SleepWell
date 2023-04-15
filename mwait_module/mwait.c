@@ -43,18 +43,14 @@ void test_function(void *info)
 
 bool cond_function(int cpu, void *info)
 {
-    return !cpu;
+    return 1;
 }
 
 int nmi_handler(unsigned int val, struct pt_regs* regs) {
     int this_cpu = smp_processor_id();
 
-    if(!this_cpu) {
-        printk(KERN_INFO "CPU %i: Sending NMIs", this_cpu);
+    if(!this_cpu)
         apic->send_IPI_allbutself(NMI_VECTOR);
-	} else {
-        printk(KERN_INFO "CPU %i: Received NMI", this_cpu);
-    }
 
     return NMI_HANDLED;
 }
@@ -62,8 +58,11 @@ int nmi_handler(unsigned int val, struct pt_regs* regs) {
 void measure_nop(void* info) {
     int this_cpu = get_cpu();
 
-    printk(KERN_INFO "CPU %i: Sending NMIs", this_cpu);
-    apic->send_IPI_allbutself(NMI_VECTOR);
+    local_irq_disable();
+
+    printk(KERN_INFO "CPU %i: Waking up\n", this_cpu);
+
+    local_irq_enable();
 }
 
 static int mwait_init(void)
