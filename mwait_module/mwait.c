@@ -6,6 +6,7 @@
 #include <asm/nmi.h>
 #include <linux/delay.h>
 #include <asm/msr-index.h>
+#include <asm/io_apic.h>
 
 MODULE_LICENSE("GPL");
 
@@ -97,7 +98,12 @@ static int mwait_init(void)
 
     register_nmi_handler(NMI_UNKNOWN, nmi_handler, 0, "nmi_handler");
 
+    save_ioapic_entries();
+    mask_ioapic_entries();
+
     on_each_cpu_cond(cond_function, measure_nop, NULL, 1);
+
+    restore_ioapic_entries();
 
     return 0;
 }
