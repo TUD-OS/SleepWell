@@ -51,8 +51,11 @@ bool cond_function(int cpu, void *info)
 int nmi_handler(unsigned int val, struct pt_regs* regs) {
     int this_cpu = smp_processor_id();
 
-    if(!this_cpu)
-        apic->send_IPI_allbutself(NMI_VECTOR);
+    printk(KERN_INFO "CPU %i: got NMI\n", this_cpu);
+
+    trigger = 0;
+    //if(!this_cpu)
+    //    apic->send_IPI_allbutself(NMI_VECTOR);
 
     return NMI_HANDLED;
 }
@@ -70,7 +73,7 @@ void measure_nop(void* info) {
 static int mwait_init(void)
 {
     printk(KERN_INFO "mwait init\n");
-    trigger = -1;
+    trigger = 1;
 
     int a = 0x1, b, c, d;
     asm("cpuid;"
@@ -99,10 +102,13 @@ static int mwait_init(void)
 
     register_nmi_handler(NMI_UNKNOWN, nmi_handler, 0, "nmi_handler");
 
-    setup_ioapic_for_measurement();
+    int apic_id = default_cpu_present_to_apicid(0);
+
+    setup_ioapic_for_measurement(apic_id);
     setup_hpet_for_measurement();
 
-    on_each_cpu_cond(cond_function, measure_nop, NULL, 1);
+    //on_each_cpu_cond(cond_function, measure_nop, NULL, 1);
+    while(trigger){}
 
     restore_hpet_after_measurement();
     restore_ioapic_after_measurement();
