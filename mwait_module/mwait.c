@@ -7,6 +7,7 @@
 #include <linux/delay.h>
 #include <asm/msr-index.h>
 #include <asm/io_apic.h>
+#include <asm/hpet.h>
 
 MODULE_LICENSE("GPL");
 
@@ -98,12 +99,13 @@ static int mwait_init(void)
 
     register_nmi_handler(NMI_UNKNOWN, nmi_handler, 0, "nmi_handler");
 
-    save_ioapic_entries();
-    mask_ioapic_entries();
+    setup_ioapic_for_measurement();
+    setup_hpet_for_measurement();
 
     on_each_cpu_cond(cond_function, measure_nop, NULL, 1);
 
-    restore_ioapic_entries();
+    restore_hpet_after_measurement();
+    restore_ioapic_after_measurement();
 
     return 0;
 }
