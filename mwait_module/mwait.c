@@ -12,11 +12,11 @@
 MODULE_LICENSE("GPL");
 
 volatile int trigger;
+unsigned long long total_energy_consumed;
 
 void test_function(void *info)
 {
     int this_cpu = get_cpu();
-    unsigned long long total_energy_consumed;
 
     local_irq_disable();
     if (this_cpu)
@@ -94,6 +94,13 @@ static int mwait_init(void)
     int apic_id = default_cpu_present_to_apicid(0);
 
     setup_ioapic_for_measurement(apic_id);
+
+    unsigned long long original_value;
+    rdmsrl_safe(MSR_PKG_ENERGY_STATUS, &original_value);
+    do {
+        rdmsrl_safe(MSR_PKG_ENERGY_STATUS, &total_energy_consumed);
+    } while (original_value == total_energy_consumed);
+
     setup_hpet_for_measurement(1000);
 
     //on_each_cpu_cond(cond_function, measure_nop, NULL, 1);
