@@ -11,7 +11,7 @@
 
 MODULE_LICENSE("GPL");
 
-volatile int trigger;
+DEFINE_PER_CPU(int, trigger);
 unsigned long long total_energy_consumed;
 
 void test_function(void *info)
@@ -53,17 +53,23 @@ int nmi_handler(unsigned int val, struct pt_regs* regs) {
 
     printk(KERN_INFO "CPU %i: got NMI\n", this_cpu);
 
-    trigger = 0;
-    //if(!this_cpu)
-    //    apic->send_IPI_allbutself(NMI_VECTOR);
+    if(!this_cpu) {
+        printk(KERN_INFO "CPU %i: waking up other CPUs\n", this_cpu);
+        apic->send_IPI_allbutself(NMI_VECTOR);
+    }
+
+    per_cpu(trigger, this_cpu) = 0;
 
     return NMI_HANDLED;
 }
 
 void measure_nop(void* info) {
     int this_cpu = get_cpu();
+    per_cpu(trigger, this_cpu) = 1;
 
     local_irq_disable();
+
+    while(per_cpu(trigger, this_cpu)) {}
 
     printk(KERN_INFO "CPU %i: Waking up\n", this_cpu);
 
@@ -73,7 +79,6 @@ void measure_nop(void* info) {
 static int mwait_init(void)
 {
     printk(KERN_INFO "mwait init\n");
-    trigger = 1;
 
     int a = 0x1, b, c, d;
     asm("cpuid;"
@@ -103,8 +108,7 @@ static int mwait_init(void)
 
     setup_hpet_for_measurement(1000);
 
-    //on_each_cpu_cond(cond_function, measure_nop, NULL, 1);
-    while(trigger){}
+    on_each_cpu_cond(cond_function, measure_nop, NULL, 1);
 
     restore_hpet_after_measurement();
     restore_ioapic_after_measurement();
