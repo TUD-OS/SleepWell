@@ -98,7 +98,13 @@ static int mwait_init(void)
 
     int apic_id = default_cpu_present_to_apicid(0);
 
-    setup_ioapic_for_measurement(apic_id);
+    int pin = select_hpet_pin();
+    if(pin == -1) {
+        printk(KERN_INFO "HPET: No suitable pin found, aborting!\n");
+        return 0;
+    }
+    printk(KERN_INFO "HPET: Pin %u selected!\n", pin);
+    setup_ioapic_for_measurement(apic_id, pin);
 
     unsigned long long original_value;
     rdmsrl_safe(MSR_PKG_ENERGY_STATUS, &original_value);
@@ -106,7 +112,7 @@ static int mwait_init(void)
         rdmsrl_safe(MSR_PKG_ENERGY_STATUS, &total_energy_consumed);
     } while (original_value == total_energy_consumed);
 
-    setup_hpet_for_measurement(1000);
+    setup_hpet_for_measurement(1000, pin);
 
     on_each_cpu_cond(cond_function, measure_nop, NULL, 1);
 
