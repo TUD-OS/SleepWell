@@ -12,36 +12,8 @@
 MODULE_LICENSE("GPL");
 
 DEFINE_PER_CPU(int, trigger);
-unsigned long long total_energy_consumed;
-
-void test_function(void *info)
-{
-    int this_cpu = get_cpu();
-
-    local_irq_disable();
-    if (this_cpu)
-    {
-        for (int i = 0; i < 10; ++i)
-        {
-
-            asm volatile("monitor;" ::"a"(&trigger), "c"(0), "d"(0));
-            asm volatile("mwait;" ::"a"(0), "c"(0));
-
-            printk(KERN_INFO "CPU %i: Iteration %i, trigger value: %i\n", this_cpu, i, trigger);
-        }
-    }
-    else
-    {
-        for (int i = 0; i < 10; ++i)
-        {
-            mdelay(1000);
-            rdmsrl_safe(MSR_PKG_ENERGY_STATUS, &total_energy_consumed);
-            printk(KERN_INFO "CPU %i: Triggering iteration %i, trigger value: %i, total energy consumed: %lli\n", this_cpu, i, i, total_energy_consumed);
-            trigger = i;
-        }
-    }
-    local_irq_enable();
-}
+unsigned long long start_rapl;
+volatile int dummy;
 
 bool cond_function(int cpu, void *info)
 {
@@ -51,10 +23,11 @@ bool cond_function(int cpu, void *info)
 int nmi_handler(unsigned int val, struct pt_regs* regs) {
     int this_cpu = smp_processor_id();
 
-    printk(KERN_INFO "CPU %i: got NMI\n", this_cpu);
-
     if(!this_cpu) {
-        printk(KERN_INFO "CPU %i: waking up other CPUs\n", this_cpu);
+        unsigned long long final_rapl;
+        rdmsrl_safe(MSR_PKG_ENERGY_STATUS, &final_rapl);
+        printk("Consumed Energy: %llu\n", final_rapl - start_rapl);
+
         apic->send_IPI_allbutself(NMI_VECTOR);
     }
 
@@ -70,6 +43,19 @@ void measure_nop(void* info) {
     local_irq_disable();
 
     while(per_cpu(trigger, this_cpu)) {}
+
+    printk(KERN_INFO "CPU %i: Waking up\n", this_cpu);
+
+    local_irq_enable();
+}
+
+void measure_mwait(void* info) {
+    int this_cpu = get_cpu();
+
+    local_irq_disable();
+
+    asm volatile("monitor;" ::"a"(&dummy), "c"(0), "d"(0));
+    asm volatile("mwait;" ::"a"(0), "c"(0));
 
     printk(KERN_INFO "CPU %i: Waking up\n", this_cpu);
 
@@ -109,8 +95,17 @@ static int mwait_init(void)
     unsigned long long original_value;
     rdmsrl_safe(MSR_PKG_ENERGY_STATUS, &original_value);
     do {
-        rdmsrl_safe(MSR_PKG_ENERGY_STATUS, &total_energy_consumed);
-    } while (original_value == total_energy_consumed);
+        rdmsrl_safe(MSR_PKG_ENERGY_STATUS, &start_rapl);
+    } while (original_value == start_rapl);
+
+    setup_hpet_for_measurement(1000, pin);
+
+    on_each_cpu_cond(cond_function, measure_mwait, NULL, 1);
+
+    rdmsrl_safe(MSR_PKG_ENERGY_STATUS, &original_value);
+    do {
+        rdmsrl_safe(MSR_PKG_ENERGY_STATUS, &start_rapl);
+    } while (original_value == start_rapl);
 
     setup_hpet_for_measurement(1000, pin);
 
