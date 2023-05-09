@@ -11,6 +11,11 @@
 
 MODULE_LICENSE("GPL");
 
+// settings
+static int duration = 100;
+module_param(duration, int, 0);
+MODULE_PARM_DESC(duration, "Duration of each measurement in milliseconds.");
+
 DEFINE_PER_CPU(int, trigger);
 static unsigned long long start_rapl;
 static unsigned long long consumed_energy;
@@ -122,7 +127,7 @@ static void measure(smp_call_func_t func, unsigned long long *result)
 
     wait_for_rapl_update();
 
-    setup_hpet_for_measurement(100, hpet_pin);
+    setup_hpet_for_measurement(duration, hpet_pin);
 
     on_each_cpu_cond(cond_function, func, NULL, 1);
     *result = consumed_energy;
