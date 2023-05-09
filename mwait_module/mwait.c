@@ -9,6 +9,8 @@
 #include <asm/io_apic.h>
 #include <asm/hpet.h>
 
+#define NUMBER_OF_MEASUREMENTS (10)
+
 MODULE_LICENSE("GPL");
 
 // settings
@@ -16,14 +18,14 @@ static int duration = 100;
 module_param(duration, int, 0);
 MODULE_PARM_DESC(duration, "Duration of each measurement in milliseconds.");
 
+// results
+static unsigned long long idle_loop_consumed_energy[NUMBER_OF_MEASUREMENTS];
+static unsigned long long mwait_consumed_energy[NUMBER_OF_MEASUREMENTS];
+
 DEFINE_PER_CPU(int, trigger);
 static unsigned long long start_rapl;
 static unsigned long long consumed_energy;
 static volatile int dummy;
-
-// results
-static unsigned long long idle_loop_consumed_energy;
-static unsigned long long mwait_consumed_energy;
 
 static unsigned cpus_present;
 static int apic_id_of_cpu0;
@@ -39,16 +41,29 @@ struct kobj_attribute idle_loop_measurement =
 struct kobj_attribute mwait_measurement =
     __ATTR(mwait_consumed_energy, 0444, show_mwait_consumed_energy, ignore_write);
 
+static ssize_t format_array_into_buffer(unsigned long long *array, char *buf)
+{
+    int bytes_written = 0;
+    int i = 0;
+
+    while (bytes_written < PAGE_SIZE && i < NUMBER_OF_MEASUREMENTS)
+    {
+        bytes_written += scnprintf(buf + bytes_written, PAGE_SIZE - bytes_written, "%llu\n", array[i]);
+        ++i;
+    }
+    return bytes_written;
+}
+
 static ssize_t show_idle_loop_consumed_energy(struct kobject *kobj,
                                               struct kobj_attribute *attr, char *buf)
 {
-    return sysfs_emit(buf, "%llu\n", idle_loop_consumed_energy);
+    return format_array_into_buffer(idle_loop_consumed_energy, buf);
 }
 
 static ssize_t show_mwait_consumed_energy(struct kobject *kobj,
                                           struct kobj_attribute *attr, char *buf)
 {
-    return sysfs_emit(buf, "%llu\n", mwait_consumed_energy);
+    return format_array_into_buffer(mwait_consumed_energy, buf);
 }
 
 static ssize_t ignore_write(struct kobject *kobj, struct kobj_attribute *attr,
@@ -95,12 +110,12 @@ static void do_idle_loop(void *info)
     printk(KERN_INFO "CPU %i: Waking up\n", this_cpu);
 
     local_irq_enable();
+    put_cpu();
 }
 
 static void do_mwait(void *info)
 {
     int this_cpu = get_cpu();
-
     local_irq_disable();
 
     asm volatile("monitor;" ::"a"(&dummy), "c"(0), "d"(0));
@@ -109,6 +124,7 @@ static void do_mwait(void *info)
     printk(KERN_INFO "CPU %i: Waking up\n", this_cpu);
 
     local_irq_enable();
+    put_cpu();
 }
 
 static inline void wait_for_rapl_update(void)
@@ -160,8 +176,11 @@ static int mwait_init(void)
         return 1;
     }
 
-    measure(do_mwait, &mwait_consumed_energy);
-    measure(do_idle_loop, &idle_loop_consumed_energy);
+    for (int i = 0; i < NUMBER_OF_MEASUREMENTS; ++i)
+    {
+        measure(do_mwait, &(mwait_consumed_energy[i]));
+        measure(do_idle_loop, &(idle_loop_consumed_energy[i]));
+    }
 
     kobj_ref = kobject_create_and_add("mwait_measurements", NULL);
     if (sysfs_create_file(kobj_ref, &idle_loop_measurement.attr) ||
