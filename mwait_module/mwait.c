@@ -87,7 +87,7 @@ static int nmi_handler(unsigned int val, struct pt_regs *regs)
         unsigned long long final_rapl;
         rdmsrl_safe(MSR_PKG_ENERGY_STATUS, &final_rapl);
         consumed_energy = final_rapl - start_rapl;
-        printk("Consumed Energy: %llu\n", consumed_energy);
+        printk("Start RAPL: %llu, Final RAPL: %llu, Consumed Energy: %llu\n", start_rapl, final_rapl, consumed_energy);
 
         apic->send_IPI_allbutself(NMI_VECTOR);
     }
