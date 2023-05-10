@@ -26,6 +26,7 @@ DEFINE_PER_CPU(int, trigger);
 static unsigned long long start_rapl;
 static unsigned long long consumed_energy;
 static volatile int dummy;
+static atomic_t sync_var;
 
 static unsigned cpus_present;
 static int apic_id_of_cpu0;
@@ -96,12 +97,44 @@ static int nmi_handler(unsigned int val, struct pt_regs *regs)
     return NMI_HANDLED;
 }
 
+static inline void wait_for_rapl_update(void)
+{
+    unsigned long long original_value;
+    rdmsrl_safe(MSR_PKG_ENERGY_STATUS, &original_value);
+    do
+    {
+        rdmsrl_safe(MSR_PKG_ENERGY_STATUS, &start_rapl);
+    } while (original_value == start_rapl);
+}
+
+static inline void sync(int this_cpu)
+{
+    atomic_inc(&sync_var);
+    if (!this_cpu)
+    {
+        while (atomic_read(&sync_var) < cpus_present)
+        {
+        }
+        wait_for_rapl_update();
+        setup_hpet_for_measurement(duration, hpet_pin);
+        atomic_inc(&sync_var);
+    }
+    else
+    {
+        while (atomic_read(&sync_var) < cpus_present + 1)
+        {
+        }
+    }
+}
+
 static void do_idle_loop(void *info)
 {
     int this_cpu = get_cpu();
+    local_irq_disable();
+
     per_cpu(trigger, this_cpu) = 1;
 
-    local_irq_disable();
+    sync(this_cpu);
 
     while (per_cpu(trigger, this_cpu))
     {
@@ -118,6 +151,8 @@ static void do_mwait(void *info)
     int this_cpu = get_cpu();
     local_irq_disable();
 
+    sync(this_cpu);
+
     asm volatile("monitor;" ::"a"(&dummy), "c"(0), "d"(0));
     asm volatile("mwait;" ::"a"(0), "c"(0));
 
@@ -127,24 +162,11 @@ static void do_mwait(void *info)
     put_cpu();
 }
 
-static inline void wait_for_rapl_update(void)
-{
-    unsigned long long original_value;
-    rdmsrl_safe(MSR_PKG_ENERGY_STATUS, &original_value);
-    do
-    {
-        rdmsrl_safe(MSR_PKG_ENERGY_STATUS, &start_rapl);
-    } while (original_value == start_rapl);
-}
-
 static void measure(smp_call_func_t func, unsigned long long *result)
 {
     setup_ioapic_for_measurement(apic_id_of_cpu0, hpet_pin);
 
-    wait_for_rapl_update();
-
-    setup_hpet_for_measurement(duration, hpet_pin);
-
+    atomic_set(&sync_var, 0);
     on_each_cpu_cond(cond_function, func, NULL, 1);
     *result = consumed_energy;
 
