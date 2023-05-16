@@ -9,18 +9,22 @@
 #include <asm/io_apic.h>
 #include <asm/hpet.h>
 
-#define NUMBER_OF_MEASUREMENTS (10)
+#define MAX_NUMBER_OF_MEASUREMENTS (1000)
 
 MODULE_LICENSE("GPL");
 
 // settings
-static int duration = 100;
-module_param(duration, int, 0);
-MODULE_PARM_DESC(duration, "Duration of each measurement in milliseconds.");
+static int measurement_duration = 100;
+module_param(measurement_duration, int, 0);
+MODULE_PARM_DESC(Measurement_duration, "Duration of each measurement in milliseconds.");
+static int measurement_count = 10;
+module_param(measurement_count, int, 0);
+MODULE_PARM_DESC(measurement_count, "How many measurements should be done.");
+static int cpus_mwait = -1;
+module_param(cpus_mwait, int, 0);
+MODULE_PARM_DESC(cpus_mwait, "Number of CPUs that should do mwait instead of a busy loop during the measurement.");
 
-// results
-static unsigned long long idle_loop_consumed_energy[NUMBER_OF_MEASUREMENTS];
-static unsigned long long mwait_consumed_energy[NUMBER_OF_MEASUREMENTS];
+static unsigned long long measurement_results[MAX_NUMBER_OF_MEASUREMENTS];
 
 DEFINE_PER_CPU(int, trigger);
 static unsigned long long start_rapl;
@@ -33,22 +37,19 @@ static unsigned cpus_present;
 static int apic_id_of_cpu0;
 static int hpet_pin;
 
-static ssize_t show_idle_loop_consumed_energy(struct kobject *kobj, struct kobj_attribute *attr, char *buf);
-static ssize_t show_mwait_consumed_energy(struct kobject *kobj, struct kobj_attribute *attr, char *buf);
+static ssize_t show_measurement_results(struct kobject *kobj, struct kobj_attribute *attr, char *buf);
 static ssize_t ignore_write(struct kobject *kobj, struct kobj_attribute *attr, const char *buf, size_t count);
 
 struct kobject *kobj_ref;
-struct kobj_attribute idle_loop_measurement =
-    __ATTR(idle_loop_consumed_energy, 0444, show_idle_loop_consumed_energy, ignore_write);
-struct kobj_attribute mwait_measurement =
-    __ATTR(mwait_consumed_energy, 0444, show_mwait_consumed_energy, ignore_write);
+struct kobj_attribute measurement_results_attr =
+    __ATTR(measurement_results, 0444, show_measurement_results, ignore_write);
 
 static ssize_t format_array_into_buffer(unsigned long long *array, char *buf)
 {
     int bytes_written = 0;
     int i = 0;
 
-    while (bytes_written < PAGE_SIZE && i < NUMBER_OF_MEASUREMENTS)
+    while (bytes_written < PAGE_SIZE && i < measurement_count)
     {
         bytes_written += scnprintf(buf + bytes_written, PAGE_SIZE - bytes_written, "%llu\n", array[i]);
         ++i;
@@ -56,27 +57,16 @@ static ssize_t format_array_into_buffer(unsigned long long *array, char *buf)
     return bytes_written;
 }
 
-static ssize_t show_idle_loop_consumed_energy(struct kobject *kobj,
-                                              struct kobj_attribute *attr, char *buf)
+static ssize_t show_measurement_results(struct kobject *kobj,
+                                        struct kobj_attribute *attr, char *buf)
 {
-    return format_array_into_buffer(idle_loop_consumed_energy, buf);
-}
-
-static ssize_t show_mwait_consumed_energy(struct kobject *kobj,
-                                          struct kobj_attribute *attr, char *buf)
-{
-    return format_array_into_buffer(mwait_consumed_energy, buf);
+    return format_array_into_buffer(measurement_results, buf);
 }
 
 static ssize_t ignore_write(struct kobject *kobj, struct kobj_attribute *attr,
                             const char *buf, size_t count)
 {
     return count;
-}
-
-static bool cond_function(int cpu, void *info)
-{
-    return 1;
 }
 
 static int nmi_handler(unsigned int val, struct pt_regs *regs)
@@ -88,10 +78,13 @@ static int nmi_handler(unsigned int val, struct pt_regs *regs)
         unsigned long long final_rapl;
         rdmsrl_safe(MSR_PKG_ENERGY_STATUS, &final_rapl);
         consumed_energy = final_rapl - start_rapl;
-        if(final_rapl <= start_rapl) {
+        if (final_rapl <= start_rapl)
+        {
             printk(KERN_INFO "Result would have been %llu, redoing measurement!\n", consumed_energy);
             redo_measurement = 1;
-        } else {
+        }
+        else
+        {
             printk(KERN_INFO "Consumed Energy: %llu\n", consumed_energy);
         }
 
@@ -122,7 +115,7 @@ static inline void sync(int this_cpu)
         {
         }
         wait_for_rapl_update();
-        setup_hpet_for_measurement(duration, hpet_pin);
+        setup_hpet_for_measurement(measurement_duration, hpet_pin);
         atomic_inc(&sync_var);
     }
     else
@@ -133,11 +126,8 @@ static inline void sync(int this_cpu)
     }
 }
 
-static void do_idle_loop(void *info)
+static void do_idle_loop(int this_cpu)
 {
-    int this_cpu = get_cpu();
-    local_irq_disable();
-
     per_cpu(trigger, this_cpu) = 1;
 
     sync(this_cpu);
@@ -147,33 +137,43 @@ static void do_idle_loop(void *info)
     }
 
     printk(KERN_INFO "CPU %i: Waking up\n", this_cpu);
-
-    local_irq_enable();
-    put_cpu();
 }
 
-static void do_mwait(void *info)
+static void do_mwait(int this_cpu)
 {
-    int this_cpu = get_cpu();
-    local_irq_disable();
-
     sync(this_cpu);
 
     asm volatile("monitor;" ::"a"(&dummy), "c"(0), "d"(0));
     asm volatile("mwait;" ::"a"(0), "c"(0));
 
     printk(KERN_INFO "CPU %i: Waking up\n", this_cpu);
+}
+
+static void per_cpu_func(void *info)
+{
+    int this_cpu = get_cpu();
+    local_irq_disable();
+
+    if (this_cpu < cpus_mwait)
+    {
+        do_mwait(this_cpu);
+    }
+    else
+    {
+        do_idle_loop(this_cpu);
+    }
 
     local_irq_enable();
     put_cpu();
 }
 
-static void measure(smp_call_func_t func, unsigned long long *result)
+static void measure(unsigned long long *result)
 {
-    do {
+    do
+    {
         redo_measurement = 0;
         atomic_set(&sync_var, 0);
-        on_each_cpu_cond(cond_function, func, NULL, 1);
+        on_each_cpu(per_cpu_func, NULL, 1);
         *result = consumed_energy;
 
         restore_hpet_after_measurement();
@@ -192,6 +192,8 @@ static int mwait_init(void)
     }
 
     cpus_present = num_present_cpus();
+    if (cpus_mwait == -1)
+        cpus_mwait = cpus_present;
 
     register_nmi_handler(NMI_UNKNOWN, nmi_handler, 0, "nmi_handler");
 
@@ -206,21 +208,18 @@ static int mwait_init(void)
 
     setup_ioapic_for_measurement(apic_id_of_cpu0, hpet_pin);
 
-    for (int i = 0; i < NUMBER_OF_MEASUREMENTS; ++i)
+    for (int i = 0; i < measurement_count; ++i)
     {
-        measure(do_mwait, &(mwait_consumed_energy[i]));
-        measure(do_idle_loop, &(idle_loop_consumed_energy[i]));
+        measure(&(measurement_results[i]));
     }
 
     restore_ioapic_after_measurement();
 
     kobj_ref = kobject_create_and_add("mwait_measurements", NULL);
-    if (sysfs_create_file(kobj_ref, &idle_loop_measurement.attr) ||
-        sysfs_create_file(kobj_ref, &mwait_measurement.attr))
+    if (sysfs_create_file(kobj_ref, &measurement_results_attr.attr))
     {
-        printk(KERN_ERR "ERROR: Could not create sysfs files, aborting\n");
-        sysfs_remove_file(kobj_ref, &idle_loop_measurement.attr);
-        sysfs_remove_file(kobj_ref, &mwait_measurement.attr);
+        printk(KERN_ERR "ERROR: Could not create sysfs file, aborting\n");
+        sysfs_remove_file(kobj_ref, &measurement_results_attr.attr);
         kobject_put(kobj_ref);
     }
 
@@ -231,8 +230,7 @@ static int mwait_init(void)
 
 static void mwait_exit(void)
 {
-    sysfs_remove_file(kobj_ref, &idle_loop_measurement.attr);
-    sysfs_remove_file(kobj_ref, &mwait_measurement.attr);
+    sysfs_remove_file(kobj_ref, &measurement_results_attr.attr);
     kobject_put(kobj_ref);
 
     unregister_nmi_handler(NMI_UNKNOWN, "nmi_handler");
