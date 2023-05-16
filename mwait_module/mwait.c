@@ -27,6 +27,7 @@ static unsigned long long start_rapl;
 static unsigned long long consumed_energy;
 static volatile int dummy;
 static atomic_t sync_var;
+static bool redo_measurement;
 
 static unsigned cpus_present;
 static int apic_id_of_cpu0;
@@ -87,7 +88,12 @@ static int nmi_handler(unsigned int val, struct pt_regs *regs)
         unsigned long long final_rapl;
         rdmsrl_safe(MSR_PKG_ENERGY_STATUS, &final_rapl);
         consumed_energy = final_rapl - start_rapl;
-        printk("Start RAPL: %llu, Final RAPL: %llu, Consumed Energy: %llu\n", start_rapl, final_rapl, consumed_energy);
+        if(final_rapl <= start_rapl) {
+            printk(KERN_INFO "Result would have been %llu, redoing measurement!\n", consumed_energy);
+            redo_measurement = 1;
+        } else {
+            printk(KERN_INFO "Consumed Energy: %llu\n", consumed_energy);
+        }
 
         apic->send_IPI_allbutself(NMI_VECTOR);
     }
@@ -164,14 +170,14 @@ static void do_mwait(void *info)
 
 static void measure(smp_call_func_t func, unsigned long long *result)
 {
-    setup_ioapic_for_measurement(apic_id_of_cpu0, hpet_pin);
+    do {
+        redo_measurement = 0;
+        atomic_set(&sync_var, 0);
+        on_each_cpu_cond(cond_function, func, NULL, 1);
+        *result = consumed_energy;
 
-    atomic_set(&sync_var, 0);
-    on_each_cpu_cond(cond_function, func, NULL, 1);
-    *result = consumed_energy;
-
-    restore_hpet_after_measurement();
-    restore_ioapic_after_measurement();
+        restore_hpet_after_measurement();
+    } while (redo_measurement);
 }
 
 static int mwait_init(void)
@@ -198,11 +204,15 @@ static int mwait_init(void)
         return 1;
     }
 
+    setup_ioapic_for_measurement(apic_id_of_cpu0, hpet_pin);
+
     for (int i = 0; i < NUMBER_OF_MEASUREMENTS; ++i)
     {
         measure(do_mwait, &(mwait_consumed_energy[i]));
         measure(do_idle_loop, &(idle_loop_consumed_energy[i]));
     }
+
+    restore_ioapic_after_measurement();
 
     kobj_ref = kobject_create_and_add("mwait_measurements", NULL);
     if (sysfs_create_file(kobj_ref, &idle_loop_measurement.attr) ||
