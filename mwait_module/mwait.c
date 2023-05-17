@@ -23,6 +23,9 @@ MODULE_PARM_DESC(measurement_count, "How many measurements should be done.");
 static int cpus_mwait = -1;
 module_param(cpus_mwait, int, 0);
 MODULE_PARM_DESC(cpus_mwait, "Number of CPUs that should do mwait instead of a busy loop during the measurement.");
+static char* cpu_selection = "core";
+module_param(cpu_selection, charp, 0);
+MODULE_PARM_DESC(cpu_selection, "How the cpus doing mwait should be selected. Supported are 'core' and 'cpu_nr'.");
 
 static unsigned long long measurement_results[MAX_NUMBER_OF_MEASUREMENTS];
 
@@ -149,12 +152,20 @@ static void do_mwait(int this_cpu)
     printk(KERN_INFO "CPU %i: Waking up\n", this_cpu);
 }
 
+static bool should_do_mwait(int this_cpu) {
+    if(strcmp(cpu_selection, "cpu_nr") == 0) {
+        return this_cpu < cpus_mwait;
+    }
+
+    return (this_cpu < cpus_present/2 ? 2*this_cpu : (this_cpu-(cpus_present/2))*2+1) < cpus_mwait;
+}
+
 static void per_cpu_func(void *info)
 {
     int this_cpu = get_cpu();
     local_irq_disable();
 
-    if (this_cpu < cpus_mwait)
+    if (should_do_mwait(this_cpu))
     {
         do_mwait(this_cpu);
     }
