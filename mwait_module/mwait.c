@@ -8,6 +8,7 @@
 #include <asm/msr-index.h>
 #include <asm/io_apic.h>
 #include <asm/hpet.h>
+#include <asm/mwait.h>
 
 #define MAX_NUMBER_OF_MEASUREMENTS (1000)
 
@@ -26,6 +27,13 @@ MODULE_PARM_DESC(cpus_mwait, "Number of CPUs that should do mwait instead of a b
 static char* cpu_selection = "core";
 module_param(cpu_selection, charp, 0);
 MODULE_PARM_DESC(cpu_selection, "How the cpus doing mwait should be selected. Supported are 'core' and 'cpu_nr'.");
+static int target_cstate = 0;
+module_param(target_cstate, int, 0);
+MODULE_PARM_DESC(target_cstate, "The C-State that gets passed to mwait as a hint.");
+static int target_subcstate = 0;
+module_param(target_subcstate, int, 0);
+MODULE_PARM_DESC(target_subcstate, "The sub C-State that gets passed to mwait as a hint.");
+
 
 static unsigned long long measurement_results[MAX_NUMBER_OF_MEASUREMENTS];
 
@@ -37,6 +45,7 @@ static atomic_t sync_var;
 static bool redo_measurement;
 
 static unsigned cpus_present;
+static unsigned mwait_hint;
 static int apic_id_of_cpu0;
 static int hpet_pin;
 
@@ -144,10 +153,15 @@ static void do_idle_loop(int this_cpu)
 
 static void do_mwait(int this_cpu)
 {
+    per_cpu(trigger, this_cpu) = 1;
+
     sync(this_cpu);
 
-    asm volatile("monitor;" ::"a"(&dummy), "c"(0), "d"(0));
-    asm volatile("mwait;" ::"a"(0), "c"(0));
+    while (per_cpu(trigger, this_cpu))
+    {
+        asm volatile("monitor;" ::"a"(&dummy), "c"(0), "d"(0));
+        asm volatile("mwait;" ::"a"(mwait_hint), "c"(0));
+    }
 
     printk(KERN_INFO "CPU %i: Waking up\n", this_cpu);
 }
@@ -193,14 +207,28 @@ static void measure(unsigned long long *result)
 
 static int mwait_init(void)
 {
-    int a = 0x1, b, c, d;
+    unsigned a = 0x1, b, c, d;
     asm("cpuid;"
         : "=a"(a), "=b"(b), "=c"(c), "=d"(d)
         : "0"(a));
     if (!(c & 0b1000))
     {
-        printk(KERN_WARNING "WARNING: Mwait not supported.\n");
+        printk(KERN_ERR "WARNING: Mwait not supported.\n");
     }
+
+    a = 0x5;
+    asm("cpuid;"
+        : "=a"(a), "=b"(b), "=c"(c), "=d"(d)
+        : "0"(a));
+    if (!(c & 0b1))
+    {
+        printk(KERN_ERR "WARNING: Mwait Power Management not supported.\n");
+    }
+
+    mwait_hint = 0;
+    mwait_hint += target_subcstate & MWAIT_SUBSTATE_MASK;
+    mwait_hint += (target_cstate & MWAIT_CSTATE_MASK) << MWAIT_SUBSTATE_SIZE;
+    printk(KERN_INFO "Using MWAIT hint 0x%x.", mwait_hint);
 
     cpus_present = num_present_cpus();
     if (cpus_mwait == -1)
