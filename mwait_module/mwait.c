@@ -24,7 +24,7 @@ MODULE_PARM_DESC(measurement_count, "How many measurements should be done.");
 static int cpus_mwait = -1;
 module_param(cpus_mwait, int, 0);
 MODULE_PARM_DESC(cpus_mwait, "Number of CPUs that should do mwait instead of a busy loop during the measurement.");
-static char* cpu_selection = "core";
+static char *cpu_selection = "core";
 module_param(cpu_selection, charp, 0);
 MODULE_PARM_DESC(cpu_selection, "How the cpus doing mwait should be selected. Supported are 'core' and 'cpu_nr'.");
 static int target_cstate = 0;
@@ -33,7 +33,6 @@ MODULE_PARM_DESC(target_cstate, "The C-State that gets passed to mwait as a hint
 static int target_subcstate = 0;
 module_param(target_subcstate, int, 0);
 MODULE_PARM_DESC(target_subcstate, "The sub C-State that gets passed to mwait as a hint.");
-
 
 static unsigned long long measurement_results[MAX_NUMBER_OF_MEASUREMENTS];
 
@@ -166,12 +165,16 @@ static void do_mwait(int this_cpu)
     printk(KERN_INFO "CPU %i: Waking up\n", this_cpu);
 }
 
-static bool should_do_mwait(int this_cpu) {
-    if(strcmp(cpu_selection, "cpu_nr") == 0) {
+static bool should_do_mwait(int this_cpu)
+{
+    if (strcmp(cpu_selection, "cpu_nr") == 0)
+    {
         return this_cpu < cpus_mwait;
     }
 
-    return (this_cpu < cpus_present/2 ? 2*this_cpu : (this_cpu-(cpus_present/2))*2+1) < cpus_mwait;
+    return (this_cpu < cpus_present / 2
+                ? 2 * this_cpu
+                : (this_cpu - (cpus_present / 2)) * 2 + 1) < cpus_mwait;
 }
 
 static void per_cpu_func(void *info)
@@ -229,6 +232,10 @@ static int mwait_init(void)
     mwait_hint += target_subcstate & MWAIT_SUBSTATE_MASK;
     mwait_hint += (target_cstate & MWAIT_CSTATE_MASK) << MWAIT_SUBSTATE_SIZE;
     printk(KERN_INFO "Using MWAIT hint 0x%x.", mwait_hint);
+
+    measurement_count = measurement_count < MAX_NUMBER_OF_MEASUREMENTS
+                            ? measurement_count
+                            : MAX_NUMBER_OF_MEASUREMENTS;
 
     cpus_present = num_present_cpus();
     if (cpus_mwait == -1)
