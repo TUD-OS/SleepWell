@@ -264,9 +264,10 @@ static int mwait_init(void)
     kobj_ref = kobject_create_and_add("mwait_measurements", NULL);
     if (sysfs_create_file(kobj_ref, &measurement_results_attr.attr))
     {
-        printk(KERN_ERR "ERROR: Could not create sysfs file, aborting\n");
+        printk(KERN_ERR "ERROR: Could not create sysfs file, aborting!\n");
         sysfs_remove_file(kobj_ref, &measurement_results_attr.attr);
         kobject_put(kobj_ref);
+        return 1;
     }
 
     printk(KERN_INFO "Successfully initialized MWAIT kernel module.\n");
