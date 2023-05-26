@@ -43,6 +43,7 @@ static volatile int dummy;
 static atomic_t sync_var;
 static bool redo_measurement;
 
+static u32 rapl_unit;
 static unsigned cpus_present;
 static unsigned mwait_hint;
 static int apic_id_of_cpu0;
@@ -202,10 +203,18 @@ static void measure(unsigned long long *result)
         redo_measurement = 0;
         atomic_set(&sync_var, 0);
         on_each_cpu(per_cpu_func, NULL, 1);
-        *result = consumed_energy;
+        *result = consumed_energy * rapl_unit;
 
         restore_hpet_after_measurement();
     } while (redo_measurement);
+}
+
+// Get the unit of the PKG_ENERGY_STATUS MSR in 0.1 microJoule
+static inline u32 get_rapl_unit(void) {
+    u64 val;
+    rdmsrl_safe(MSR_RAPL_POWER_UNIT, &val);
+    val = (val >> 8) & 0b11111;
+    return 10000000 / (1 << val);
 }
 
 static int mwait_init(void)
@@ -236,6 +245,9 @@ static int mwait_init(void)
     measurement_count = measurement_count < MAX_NUMBER_OF_MEASUREMENTS
                             ? measurement_count
                             : MAX_NUMBER_OF_MEASUREMENTS;
+
+    rapl_unit = get_rapl_unit();
+    printk(KERN_INFO "rapl_unit in 0.1 microJoule: %u\n", rapl_unit);
 
     cpus_present = num_present_cpus();
     if (cpus_mwait == -1)
