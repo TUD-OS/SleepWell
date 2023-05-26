@@ -10,6 +10,8 @@
 #include <asm/hpet.h>
 #include <asm/mwait.h>
 
+#define TOTAL_ENERGY_CONSUMED_MASK (0xffffffff)
+
 #define MAX_NUMBER_OF_MEASUREMENTS (1000)
 
 MODULE_LICENSE("GPL");
@@ -34,18 +36,18 @@ static int target_subcstate = 0;
 module_param(target_subcstate, int, 0);
 MODULE_PARM_DESC(target_subcstate, "The sub C-State that gets passed to mwait as a hint.");
 
-static unsigned long long measurement_results[MAX_NUMBER_OF_MEASUREMENTS];
+static u64 measurement_results[MAX_NUMBER_OF_MEASUREMENTS];
 
 DEFINE_PER_CPU(int, trigger);
-static unsigned long long start_rapl;
-static unsigned long long consumed_energy;
+static u64 start_rapl;
+static u64 consumed_energy;
 static volatile int dummy;
 static atomic_t sync_var;
 static bool redo_measurement;
 
 static u32 rapl_unit;
 static unsigned cpus_present;
-static unsigned mwait_hint;
+static u32 mwait_hint;
 static int apic_id_of_cpu0;
 static int hpet_pin;
 
@@ -56,7 +58,7 @@ struct kobject *kobj_ref;
 struct kobj_attribute measurement_results_attr =
     __ATTR(measurement_results, 0444, show_measurement_results, ignore_write);
 
-static ssize_t format_array_into_buffer(unsigned long long *array, char *buf)
+static ssize_t format_array_into_buffer(u64 *array, char *buf)
 {
     int bytes_written = 0;
     int i = 0;
@@ -87,8 +89,9 @@ static int nmi_handler(unsigned int val, struct pt_regs *regs)
 
     if (!this_cpu)
     {
-        unsigned long long final_rapl;
+        u64 final_rapl;
         rdmsrl_safe(MSR_PKG_ENERGY_STATUS, &final_rapl);
+        final_rapl &= TOTAL_ENERGY_CONSUMED_MASK;
         consumed_energy = final_rapl - start_rapl;
         if (final_rapl <= start_rapl)
         {
@@ -110,11 +113,13 @@ static int nmi_handler(unsigned int val, struct pt_regs *regs)
 
 static inline void wait_for_rapl_update(void)
 {
-    unsigned long long original_value;
+    u64 original_value;
     rdmsrl_safe(MSR_PKG_ENERGY_STATUS, &original_value);
+    original_value &= TOTAL_ENERGY_CONSUMED_MASK;
     do
     {
         rdmsrl_safe(MSR_PKG_ENERGY_STATUS, &start_rapl);
+        start_rapl &= TOTAL_ENERGY_CONSUMED_MASK;
     } while (original_value == start_rapl);
 }
 
@@ -210,7 +215,8 @@ static void measure(unsigned long long *result)
 }
 
 // Get the unit of the PKG_ENERGY_STATUS MSR in 0.1 microJoule
-static inline u32 get_rapl_unit(void) {
+static inline u32 get_rapl_unit(void)
+{
     u64 val;
     rdmsrl_safe(MSR_RAPL_POWER_UNIT, &val);
     val = (val >> 8) & 0b11111;
@@ -219,7 +225,7 @@ static inline u32 get_rapl_unit(void) {
 
 static int mwait_init(void)
 {
-    unsigned a = 0x1, b, c, d;
+    u32 a = 0x1, b, c, d;
     asm("cpuid;"
         : "=a"(a), "=b"(b), "=c"(c), "=d"(d)
         : "0"(a));
