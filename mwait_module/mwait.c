@@ -29,7 +29,7 @@ MODULE_PARM_DESC(cpus_mwait, "Number of CPUs that should do mwait instead of a b
 static char *cpu_selection = "core";
 module_param(cpu_selection, charp, 0);
 MODULE_PARM_DESC(cpu_selection, "How the cpus doing mwait should be selected. Supported are 'core' and 'cpu_nr'.");
-static int target_cstate = 0;
+static int target_cstate = 1;
 module_param(target_cstate, int, 0);
 MODULE_PARM_DESC(target_cstate, "The C-State that gets passed to mwait as a hint.");
 static int target_subcstate = 0;
@@ -223,6 +223,22 @@ static inline u32 get_rapl_unit(void)
     return 10000000 / (1 << val);
 }
 
+static inline u32 get_cstate_hint(void)
+{
+    if(target_cstate==0)
+    {
+        return 0xf;
+    }
+
+    if(target_cstate > 15)
+    {
+        printk(KERN_ERR "WARNING: target_cstate of %i is invalid, using C1!", target_cstate);
+        return 0;
+    }
+
+    return target_cstate - 1;
+}
+
 static int mwait_init(void)
 {
     u32 a = 0x1, b, c, d;
@@ -245,7 +261,7 @@ static int mwait_init(void)
 
     mwait_hint = 0;
     mwait_hint += target_subcstate & MWAIT_SUBSTATE_MASK;
-    mwait_hint += (target_cstate & MWAIT_CSTATE_MASK) << MWAIT_SUBSTATE_SIZE;
+    mwait_hint += (get_cstate_hint() & MWAIT_CSTATE_MASK) << MWAIT_SUBSTATE_SIZE;
     printk(KERN_INFO "Using MWAIT hint 0x%x.", mwait_hint);
 
     measurement_count = measurement_count < MAX_NUMBER_OF_MEASUREMENTS
@@ -269,6 +285,7 @@ static int mwait_init(void)
         printk(KERN_ERR "ERROR: No suitable pin found for HPET, aborting!\n");
         return 1;
     }
+    printk(KERN_INFO "Using IOAPIC pin %i for HPET.\n", hpet_pin);
 
     setup_ioapic_for_measurement(apic_id_of_cpu0, hpet_pin);
 
