@@ -46,6 +46,7 @@ static u64 consumed_energy;
 static volatile int dummy;
 static atomic_t sync_var;
 static bool redo_measurement;
+static bool end_of_measurement;
 
 static u32 rapl_unit;
 static unsigned cpus_present;
@@ -117,10 +118,20 @@ static int nmi_handler(unsigned int val, struct pt_regs *regs)
             printk(KERN_INFO "Consumed Energy: %llu\n", consumed_energy);
         }
 
+        end_of_measurement = 1;
+
         apic->send_IPI_allbutself(NMI_VECTOR);
     }
 
-    per_cpu(trigger, this_cpu) = 0;
+    if(end_of_measurement)
+    {
+        per_cpu(trigger, this_cpu) = 0;
+    }
+    else
+    {
+        printk(KERN_ERR "CPU %i received unexpected NMI during measurement.\n", this_cpu);
+        redo_measurement = 1;
+    }
 
     return NMI_HANDLED;
 }
@@ -217,6 +228,7 @@ static void measure(unsigned long long *result)
     do
     {
         redo_measurement = 0;
+        end_of_measurement = 0;
         atomic_set(&sync_var, 0);
         on_each_cpu(per_cpu_func, NULL, 1);
         *result = consumed_energy * rapl_unit;
