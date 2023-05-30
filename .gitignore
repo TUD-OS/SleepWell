@@ -1,4 +1,4 @@
 .vscode
 mwait_deploy/mwait.c
-mwait_deploy/results
 deploy.sh
+output

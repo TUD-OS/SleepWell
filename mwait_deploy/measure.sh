@@ -19,11 +19,22 @@ echo 0 > /proc/sys/kernel/nmi_watchdog
 
 function measure {
     insmod mwait.ko $2
-    cp /sys/mwait_measurements/measurement_results results/$1
+    cp /sys/mwait_measurements/measurement_results results/$1.csv
     rmmod mwait
 }
 
-measure "standard" ""
+# measurements
+measure "C0" "target_cstate=0"
+measure "C1" "target_cstate=1"
+measure "C2" "target_cstate=2"
+measure "C3" "target_cstate=3"
+measure "C4" "target_cstate=4"
+measure "C5" "target_cstate=5"
+measure "C6" "target_cstate=6"
+measure "C7" "target_cstate=7"
+measure "C8" "target_cstate=8"
+measure "C9" "target_cstate=9"
+measure "C10" "target_cstate=10"
 
 # cleanup
 echo $NMI_WATCHDOG > /proc/sys/kernel/nmi_watchdog

@@ -4,15 +4,25 @@ import matplotlib.pyplot as plt
 
 results_directory = sys.argv[1]
 
-def add_csv_as_column(df, name, pos):
-    new_df = pd.read_csv(results_directory+name, names=[name])
+def add_csv_as_column(df, name):
+    new_df = pd.read_csv(results_directory+name+".csv", names=[name])
     new_df /= 10000000
-    df.insert(pos, name, new_df[name])
+    df.insert(len(df.columns), name, new_df[name])
 
 df = pd.DataFrame()
-add_csv_as_column(df, "C1", 0)
-add_csv_as_column(df, "C2", 1)
+add_csv_as_column(df, "C0")
+add_csv_as_column(df, "C1")
+add_csv_as_column(df, "C2")
+add_csv_as_column(df, "C3")
+add_csv_as_column(df, "C4")
+add_csv_as_column(df, "C5")
+add_csv_as_column(df, "C6")
+add_csv_as_column(df, "C7")
+add_csv_as_column(df, "C8")
+add_csv_as_column(df, "C9")
+add_csv_as_column(df, "C10")
 plot = df.plot.box()
 plot.set_ylim(ymin=0)
+plot.set_ylabel("Joule")
 plt.show()
-plot.figure.savefig('test.png')
+plot.figure.savefig('output/sleepstates.png')
