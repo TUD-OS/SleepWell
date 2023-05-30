@@ -152,8 +152,6 @@ static void do_idle_loop(int this_cpu)
     while (per_cpu(trigger, this_cpu))
     {
     }
-
-    printk(KERN_INFO "CPU %i: Waking up\n", this_cpu);
 }
 
 static void do_mwait(int this_cpu)
@@ -167,8 +165,6 @@ static void do_mwait(int this_cpu)
         asm volatile("monitor;" ::"a"(&dummy), "c"(0), "d"(0));
         asm volatile("mwait;" ::"a"(mwait_hint), "c"(0));
     }
-
-    printk(KERN_INFO "CPU %i: Waking up\n", this_cpu);
 }
 
 static bool should_do_mwait(int this_cpu)
@@ -305,7 +301,7 @@ static int mwait_init(void)
         return 1;
     }
 
-    printk(KERN_INFO "Successfully initialized MWAIT kernel module.\n");
+    printk(KERN_INFO "MWAIT: Measurements done.\n");
 
     return 0;
 }
@@ -316,7 +312,6 @@ static void mwait_exit(void)
     kobject_put(kobj_ref);
 
     unregister_nmi_handler(NMI_UNKNOWN, "nmi_handler");
-    printk(KERN_INFO "Successfully exited MWAIT kernel module.\n");
 }
 
 module_init(mwait_init);
