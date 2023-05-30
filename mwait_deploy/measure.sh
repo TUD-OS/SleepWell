@@ -36,6 +36,16 @@ measure "C8" "target_cstate=8"
 measure "C9" "target_cstate=9"
 measure "C10" "target_cstate=10"
 
+measure "0" "cpus_mwait=0"
+measure "1" "cpus_mwait=1"
+measure "2" "cpus_mwait=2"
+measure "3" "cpus_mwait=3"
+measure "4" "cpus_mwait=4"
+measure "5" "cpus_mwait=5"
+measure "6" "cpus_mwait=6"
+measure "7" "cpus_mwait=7"
+measure "8" "cpus_mwait=8"
+
 # cleanup
 echo $NMI_WATCHDOG > /proc/sys/kernel/nmi_watchdog
 echo $FREQ_GOVERNOR | tee /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor
