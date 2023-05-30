@@ -19,7 +19,7 @@ MODULE_LICENSE("GPL");
 // settings
 static int measurement_duration = 100;
 module_param(measurement_duration, int, 0);
-MODULE_PARM_DESC(Measurement_duration, "Duration of each measurement in milliseconds.");
+MODULE_PARM_DESC(measurement_duration, "Duration of each measurement in milliseconds.");
 static int measurement_count = 10;
 module_param(measurement_count, int, 0);
 MODULE_PARM_DESC(measurement_count, "How many measurements should be done.");
