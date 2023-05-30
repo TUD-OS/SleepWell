@@ -9,6 +9,7 @@
 #include <asm/io_apic.h>
 #include <asm/hpet.h>
 #include <asm/mwait.h>
+#include <linux/sched/clock.h>
 
 #define TOTAL_ENERGY_CONSUMED_MASK (0xffffffff)
 
@@ -39,6 +40,7 @@ MODULE_PARM_DESC(target_subcstate, "The sub C-State that gets passed to mwait as
 static u64 measurement_results[MAX_NUMBER_OF_MEASUREMENTS];
 
 DEFINE_PER_CPU(int, trigger);
+static u64 start_time;
 static u64 start_rapl;
 static u64 consumed_energy;
 static volatile int dummy;
@@ -89,14 +91,26 @@ static int nmi_handler(unsigned int val, struct pt_regs *regs)
 
     if (!this_cpu)
     {
-        u64 final_rapl;
+        u64 final_rapl, elapsed_time;
         rdmsrl_safe(MSR_PKG_ENERGY_STATUS, &final_rapl);
+        elapsed_time = local_clock() - start_time;
         final_rapl &= TOTAL_ENERGY_CONSUMED_MASK;
         consumed_energy = final_rapl - start_rapl;
+
+        if (elapsed_time < measurement_duration * 1000000)
+        {
+            printk(KERN_ERR "Measurement lasted only %llu ns.\n", elapsed_time);
+            redo_measurement = 1;
+        }
         if (final_rapl <= start_rapl)
         {
-            printk(KERN_INFO "Result would have been %llu, redoing measurement!\n", consumed_energy);
+            printk(KERN_ERR "Result would have been %llu.\n", consumed_energy);
             redo_measurement = 1;
+        }
+
+        if (redo_measurement)
+        {
+            printk(KERN_ERR "Redoing Measurement!\n");
         }
         else
         {
@@ -132,6 +146,7 @@ static inline void sync(int this_cpu)
         {
         }
         wait_for_rapl_update();
+        start_time = local_clock();
         setup_hpet_for_measurement(measurement_duration, hpet_pin);
         atomic_inc(&sync_var);
     }
@@ -221,12 +236,12 @@ static inline u32 get_rapl_unit(void)
 
 static inline u32 get_cstate_hint(void)
 {
-    if(target_cstate==0)
+    if (target_cstate == 0)
     {
         return 0xf;
     }
 
-    if(target_cstate > 15)
+    if (target_cstate > 15)
     {
         printk(KERN_ERR "WARNING: target_cstate of %i is invalid, using C1!", target_cstate);
         return 0;
