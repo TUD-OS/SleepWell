@@ -40,6 +40,7 @@ MODULE_PARM_DESC(target_subcstate, "The sub C-State that gets passed to mwait as
 static u64 measurement_results[MAX_NUMBER_OF_MEASUREMENTS];
 
 DEFINE_PER_CPU(int, trigger);
+DEFINE_PER_CPU(u64, wakeups);
 static u64 start_time;
 static u64 start_rapl;
 static u64 consumed_energy;
@@ -169,8 +170,6 @@ static inline void sync(int this_cpu)
 
 static void do_idle_loop(int this_cpu)
 {
-    per_cpu(trigger, this_cpu) = 1;
-
     sync(this_cpu);
 
     while (per_cpu(trigger, this_cpu))
@@ -180,7 +179,7 @@ static void do_idle_loop(int this_cpu)
 
 static void do_mwait(int this_cpu)
 {
-    per_cpu(trigger, this_cpu) = 1;
+    per_cpu(wakeups, this_cpu) = 0;
 
     sync(this_cpu);
 
@@ -188,7 +187,10 @@ static void do_mwait(int this_cpu)
     {
         asm volatile("monitor;" ::"a"(&dummy), "c"(0), "d"(0));
         asm volatile("mwait;" ::"a"(mwait_hint), "c"(0));
+        per_cpu(wakeups, this_cpu) += 1;
     }
+
+    printk("CPU %i: %llu wakeups\n", this_cpu, per_cpu(wakeups, this_cpu));
 }
 
 static bool should_do_mwait(int this_cpu)
@@ -207,6 +209,8 @@ static void per_cpu_func(void *info)
 {
     int this_cpu = get_cpu();
     local_irq_disable();
+
+    per_cpu(trigger, this_cpu) = 1;
 
     if (should_do_mwait(this_cpu))
     {
