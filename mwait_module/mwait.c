@@ -117,10 +117,6 @@ static int nmi_handler(unsigned int val, struct pt_regs *regs)
 
         end_of_measurement = 1;
 
-        // Without some delay here, CPUs tend to get stuck on rare occasions
-        // I don't know yet why exactly this happens, so this udelay should be seen as a (hopefully temporary) workaround
-        udelay(1);
-
         apic->send_IPI_allbutself(NMI_VECTOR);
     }
 
@@ -131,6 +127,10 @@ static int nmi_handler(unsigned int val, struct pt_regs *regs)
     }
 
     per_cpu(trigger, this_cpu) = 0;
+
+    // Without some delay here, CPUs tend to get stuck on rare occasions
+    // I don't know yet why exactly this happens, so this udelay should be seen as a (hopefully temporary) workaround
+    udelay(1);
 
     return NMI_HANDLED;
 }
