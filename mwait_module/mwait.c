@@ -14,6 +14,7 @@
 #define TOTAL_ENERGY_CONSUMED_MASK (0xffffffff)
 
 #define MAX_NUMBER_OF_MEASUREMENTS (1000)
+#define MAX_CPUS (32)
 
 MODULE_LICENSE("GPL");
 
@@ -38,6 +39,11 @@ module_param(target_subcstate, int, 0);
 MODULE_PARM_DESC(target_subcstate, "The sub C-State that gets passed to mwait as a hint.");
 
 static u64 measurement_results[MAX_NUMBER_OF_MEASUREMENTS];
+static struct cpu_stat
+{
+    struct kobject kobject;
+    u64 wakeups[MAX_NUMBER_OF_MEASUREMENTS];
+} cpu_stats[MAX_CPUS];
 
 DEFINE_PER_CPU(int, trigger);
 DEFINE_PER_CPU(u64, wakeups);
@@ -56,9 +62,37 @@ static int apic_id_of_cpu0;
 static int hpet_pin;
 
 static ssize_t show_measurement_results(struct kobject *kobj, struct kobj_attribute *attr, char *buf);
-static ssize_t ignore_write(struct kobject *kobj, struct kobj_attribute *attr, const char *buf, size_t count);
+static ssize_t ignore_write(struct kobject *kobj, struct kobj_attribute *attr, const char *buf, size_t count)
+{
+    return count;
+}
+static ssize_t show_cpu_stats(struct kobject *kobj, struct attribute *attr, char *buf);
+static ssize_t ignore_cpu_stat_write(struct kobject *kobj, struct attribute *attr, const char *buf, size_t count)
+{
+    return count;
+}
+static void release(struct kobject *kobj) {}
+
+static struct attribute wakeups_attribute = {
+    .name = "wakeups",
+    .mode = 0444};
+static struct attribute *cpu_stats_attributes[] = {
+    &wakeups_attribute,
+    NULL};
+static struct attribute_group cpu_stats_group = {
+    .attrs = cpu_stats_attributes};
+static const struct attribute_group *cpu_stats_groups[] = {
+    &cpu_stats_group,
+    NULL};
 
 struct kobject *kobj_ref;
+static const struct sysfs_ops sysfs_ops = {
+    .show = show_cpu_stats,
+    .store = ignore_cpu_stat_write};
+static const struct kobj_type ktype = {
+    .sysfs_ops = &sysfs_ops,
+    .release = release,
+    .default_groups = cpu_stats_groups};
 struct kobj_attribute measurement_results_attr =
     __ATTR(measurement_results, 0444, show_measurement_results, ignore_write);
 
@@ -81,10 +115,12 @@ static ssize_t show_measurement_results(struct kobject *kobj,
     return format_array_into_buffer(measurement_results, buf);
 }
 
-static ssize_t ignore_write(struct kobject *kobj, struct kobj_attribute *attr,
-                            const char *buf, size_t count)
+static ssize_t show_cpu_stats(struct kobject *kobj, struct attribute *attr, char *buf)
 {
-    return count;
+    struct cpu_stat *stat = container_of(kobj, struct cpu_stat, kobject);
+    if (strcmp(attr->name, "wakeups") == 0)
+        return format_array_into_buffer(stat->wakeups, buf);
+    return 0;
 }
 
 static int nmi_handler(unsigned int val, struct pt_regs *regs)
@@ -120,7 +156,7 @@ static int nmi_handler(unsigned int val, struct pt_regs *regs)
         apic->send_IPI_allbutself(NMI_VECTOR);
     }
 
-    if(!end_of_measurement)
+    if (!end_of_measurement)
     {
         printk(KERN_ERR "CPU %i received unexpected NMI during measurement.\n", this_cpu);
         redo_measurement = 1;
@@ -189,8 +225,6 @@ static void do_mwait(int this_cpu)
         asm volatile("mwait;" ::"a"(mwait_hint), "c"(0));
         per_cpu(wakeups, this_cpu) += 1;
     }
-
-    printk("CPU %i: %llu wakeups\n", this_cpu, per_cpu(wakeups, this_cpu));
 }
 
 static bool should_do_mwait(int this_cpu)
@@ -225,7 +259,7 @@ static void per_cpu_func(void *info)
     put_cpu();
 }
 
-static void measure(unsigned long long *result)
+static void measure(unsigned number)
 {
     do
     {
@@ -233,7 +267,9 @@ static void measure(unsigned long long *result)
         end_of_measurement = 0;
         atomic_set(&sync_var, 0);
         on_each_cpu(per_cpu_func, NULL, 1);
-        *result = consumed_energy * rapl_unit;
+        measurement_results[number] = consumed_energy * rapl_unit;
+        for (unsigned i = 0; i < cpus_present; ++i)
+            cpu_stats[i].wakeups[number] = per_cpu(wakeups, i);
 
         restore_hpet_after_measurement();
     } while (redo_measurement);
@@ -314,14 +350,19 @@ static int mwait_init(void)
 
     setup_ioapic_for_measurement(apic_id_of_cpu0, hpet_pin);
 
-    for (int i = 0; i < measurement_count; ++i)
+    for (unsigned i = 0; i < measurement_count; ++i)
     {
-        measure(&(measurement_results[i]));
+        measure(i);
     }
 
     restore_ioapic_after_measurement();
 
     kobj_ref = kobject_create_and_add("mwait_measurements", NULL);
+    for (unsigned i = 0; i < cpus_present; ++i)
+    {
+        if (kobject_init_and_add(&(cpu_stats[i].kobject), &ktype, kobj_ref, "cpu%u", i))
+            printk(KERN_ERR "ERROR: Could not properly initialize CPU stat structure in the sysfs.\n");
+    }
     if (sysfs_create_file(kobj_ref, &measurement_results_attr.attr))
     {
         printk(KERN_ERR "ERROR: Could not create sysfs file, aborting!\n");
@@ -338,6 +379,10 @@ static int mwait_init(void)
 static void mwait_exit(void)
 {
     sysfs_remove_file(kobj_ref, &measurement_results_attr.attr);
+    for (unsigned i = 0; i < cpus_present; ++i)
+    {
+        kobject_del(&(cpu_stats[i].kobject));
+    }
     kobject_put(kobj_ref);
 
     unregister_nmi_handler(NMI_UNKNOWN, "nmi_handler");
