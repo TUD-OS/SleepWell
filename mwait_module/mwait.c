@@ -215,8 +215,6 @@ static void do_idle_loop(int this_cpu)
 
 static void do_mwait(int this_cpu)
 {
-    per_cpu(wakeups, this_cpu) = 0;
-
     sync(this_cpu);
 
     while (per_cpu(trigger, this_cpu))
@@ -265,8 +263,12 @@ static void measure(unsigned number)
     {
         redo_measurement = 0;
         end_of_measurement = 0;
+        for (unsigned i = 0; i < cpus_present; ++i)
+            per_cpu(wakeups, i) = 0;
         atomic_set(&sync_var, 0);
+
         on_each_cpu(per_cpu_func, NULL, 1);
+
         measurement_results[number] = consumed_energy * rapl_unit;
         for (unsigned i = 0; i < cpus_present; ++i)
             cpu_stats[i].wakeups[number] = per_cpu(wakeups, i);

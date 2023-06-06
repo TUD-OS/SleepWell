@@ -19,7 +19,7 @@ echo 0 > /proc/sys/kernel/nmi_watchdog
 
 function measure {
     insmod mwait.ko $2
-    cp /sys/mwait_measurements/measurement_results results/$1.csv
+    cp -r /sys/mwait_measurements results/$1
     rmmod mwait
 }
 
