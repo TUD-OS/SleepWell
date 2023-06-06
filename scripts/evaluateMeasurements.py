@@ -5,7 +5,7 @@ import matplotlib.pyplot as plt
 results_directory = sys.argv[1]
 
 def add_csv_as_column(df, name):
-    new_df = pd.read_csv(results_directory+name+"/measurement_results", names=[name])
+    new_df = pd.read_csv(results_directory+name+"/pkg_energy_consumption", names=[name])
     new_df /= 10000000
     df.insert(len(df.columns), name, new_df[name])
 

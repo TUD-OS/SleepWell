@@ -38,18 +38,38 @@ static int target_subcstate = 0;
 module_param(target_subcstate, int, 0);
 MODULE_PARM_DESC(target_subcstate, "The sub C-State that gets passed to mwait as a hint.");
 
-static u64 measurement_results[MAX_NUMBER_OF_MEASUREMENTS];
+static struct pkg_stat
+{
+    struct kobject kobject;
+    u64 energy_consumption[MAX_NUMBER_OF_MEASUREMENTS];
+    u64 c3[MAX_NUMBER_OF_MEASUREMENTS];
+    u64 c6[MAX_NUMBER_OF_MEASUREMENTS];
+    u64 c7[MAX_NUMBER_OF_MEASUREMENTS];
+} pkg_stats;
+
 static struct cpu_stat
 {
     struct kobject kobject;
     u64 wakeups[MAX_NUMBER_OF_MEASUREMENTS];
+    u64 c3[MAX_NUMBER_OF_MEASUREMENTS];
+    u64 c6[MAX_NUMBER_OF_MEASUREMENTS];
+    u64 c7[MAX_NUMBER_OF_MEASUREMENTS];
 } cpu_stats[MAX_CPUS];
 
-DEFINE_PER_CPU(int, trigger);
 DEFINE_PER_CPU(u64, wakeups);
-static u64 start_time;
-static u64 start_rapl;
-static u64 consumed_energy;
+DEFINE_PER_CPU(u64, start_c3);
+DEFINE_PER_CPU(u64, final_c3);
+DEFINE_PER_CPU(u64, start_c6);
+DEFINE_PER_CPU(u64, final_c6);
+DEFINE_PER_CPU(u64, start_c7);
+DEFINE_PER_CPU(u64, final_c7);
+static u64 start_time, final_time;
+static u64 start_rapl, final_rapl;
+static u64 start_pkg_c3, final_pkg_c3;
+static u64 start_pkg_c6, final_pkg_c6;
+static u64 start_pkg_c7, final_pkg_c7;
+
+DEFINE_PER_CPU(int, trigger);
 static volatile int dummy;
 static atomic_t sync_var;
 static bool redo_measurement;
@@ -61,23 +81,46 @@ static u32 mwait_hint;
 static int apic_id_of_cpu0;
 static int hpet_pin;
 
-static ssize_t show_measurement_results(struct kobject *kobj, struct kobj_attribute *attr, char *buf);
-static ssize_t ignore_write(struct kobject *kobj, struct kobj_attribute *attr, const char *buf, size_t count)
-{
-    return count;
-}
-static ssize_t show_cpu_stats(struct kobject *kobj, struct attribute *attr, char *buf);
-static ssize_t ignore_cpu_stat_write(struct kobject *kobj, struct attribute *attr, const char *buf, size_t count)
-{
-    return count;
-}
-static void release(struct kobject *kobj) {}
-
+static struct attribute pkg_energy_consumption_attribute = {
+    .name = "pkg_energy_consumption",
+    .mode = 0444};
+static struct attribute pkg_c3_attribute = {
+    .name = "pkg_c3",
+    .mode = 0444};
+static struct attribute pkg_c6_attribute = {
+    .name = "pkg_c6",
+    .mode = 0444};
+static struct attribute pkg_c7_attribute = {
+    .name = "pkg_c7",
+    .mode = 0444};
+static struct attribute *pkg_stats_attributes[] = {
+    &pkg_energy_consumption_attribute,
+    &pkg_c3_attribute,
+    &pkg_c6_attribute,
+    &pkg_c7_attribute,
+    NULL};
+static struct attribute_group pkg_stats_group = {
+    .attrs = pkg_stats_attributes};
+static const struct attribute_group *pkg_stats_groups[] = {
+    &pkg_stats_group,
+    NULL};
 static struct attribute wakeups_attribute = {
     .name = "wakeups",
     .mode = 0444};
+static struct attribute c3_attribute = {
+    .name = "c3",
+    .mode = 0444};
+static struct attribute c6_attribute = {
+    .name = "c6",
+    .mode = 0444};
+static struct attribute c7_attribute = {
+    .name = "c7",
+    .mode = 0444};
 static struct attribute *cpu_stats_attributes[] = {
     &wakeups_attribute,
+    &c3_attribute,
+    &c6_attribute,
+    &c7_attribute,
     NULL};
 static struct attribute_group cpu_stats_group = {
     .attrs = cpu_stats_attributes};
@@ -85,16 +128,28 @@ static const struct attribute_group *cpu_stats_groups[] = {
     &cpu_stats_group,
     NULL};
 
-struct kobject *kobj_ref;
-static const struct sysfs_ops sysfs_ops = {
+static ssize_t show_cpu_stats(struct kobject *kobj, struct attribute *attr, char *buf);
+static ssize_t show_pkg_stats(struct kobject *kobj, struct attribute *attr, char *buf);
+static ssize_t ignore_write(struct kobject *kobj, struct attribute *attr, const char *buf, size_t count)
+{
+    return count;
+}
+static void release(struct kobject *kobj) {}
+
+static const struct sysfs_ops pkg_sysfs_ops = {
+    .show = show_pkg_stats,
+    .store = ignore_write};
+static const struct sysfs_ops cpu_sysfs_ops = {
     .show = show_cpu_stats,
-    .store = ignore_cpu_stat_write};
-static const struct kobj_type ktype = {
-    .sysfs_ops = &sysfs_ops,
+    .store = ignore_write};
+static const struct kobj_type pkg_ktype = {
+    .sysfs_ops = &pkg_sysfs_ops,
+    .release = release,
+    .default_groups = pkg_stats_groups};
+static const struct kobj_type cpu_ktype = {
+    .sysfs_ops = &cpu_sysfs_ops,
     .release = release,
     .default_groups = cpu_stats_groups};
-struct kobj_attribute measurement_results_attr =
-    __ATTR(measurement_results, 0444, show_measurement_results, ignore_write);
 
 static ssize_t format_array_into_buffer(u64 *array, char *buf)
 {
@@ -109,10 +164,18 @@ static ssize_t format_array_into_buffer(u64 *array, char *buf)
     return bytes_written;
 }
 
-static ssize_t show_measurement_results(struct kobject *kobj,
-                                        struct kobj_attribute *attr, char *buf)
+static ssize_t show_pkg_stats(struct kobject *kobj, struct attribute *attr, char *buf)
 {
-    return format_array_into_buffer(measurement_results, buf);
+    struct pkg_stat *stat = container_of(kobj, struct pkg_stat, kobject);
+    if (strcmp(attr->name, "pkg_energy_consumption") == 0)
+        return format_array_into_buffer(stat->energy_consumption, buf);
+    if (strcmp(attr->name, "pkg_c3") == 0)
+        return format_array_into_buffer(stat->c3, buf);
+    if (strcmp(attr->name, "pkg_c6") == 0)
+        return format_array_into_buffer(stat->c6, buf);
+    if (strcmp(attr->name, "pkg_c7") == 0)
+        return format_array_into_buffer(stat->c7, buf);
+    return 0;
 }
 
 static ssize_t show_cpu_stats(struct kobject *kobj, struct attribute *attr, char *buf)
@@ -120,7 +183,61 @@ static ssize_t show_cpu_stats(struct kobject *kobj, struct attribute *attr, char
     struct cpu_stat *stat = container_of(kobj, struct cpu_stat, kobject);
     if (strcmp(attr->name, "wakeups") == 0)
         return format_array_into_buffer(stat->wakeups, buf);
+    if (strcmp(attr->name, "c3") == 0)
+        return format_array_into_buffer(stat->c3, buf);
+    if (strcmp(attr->name, "c6") == 0)
+        return format_array_into_buffer(stat->c6, buf);
+    if (strcmp(attr->name, "c7") == 0)
+        return format_array_into_buffer(stat->c7, buf);
     return 0;
+}
+
+static inline void set_global_final_values(void)
+{
+    rdmsrl_safe(MSR_PKG_ENERGY_STATUS, &final_rapl);
+    final_time = local_clock();
+    rdmsrl_safe(MSR_PKG_C3_RESIDENCY, &final_pkg_c3);
+    rdmsrl_safe(MSR_PKG_C6_RESIDENCY, &final_pkg_c6);
+    rdmsrl_safe(MSR_PKG_C7_RESIDENCY, &final_pkg_c7);
+}
+
+static inline void set_cpu_final_values(int this_cpu)
+{
+    rdmsrl_safe(MSR_CORE_C3_RESIDENCY, &per_cpu(final_c3, this_cpu));
+    rdmsrl_safe(MSR_CORE_C6_RESIDENCY, &per_cpu(final_c6, this_cpu));
+    rdmsrl_safe(MSR_CORE_C7_RESIDENCY, &per_cpu(final_c7, this_cpu));
+}
+
+static inline void evaluate_global(void)
+{
+    final_rapl &= TOTAL_ENERGY_CONSUMED_MASK;
+    if (final_rapl <= start_rapl)
+    {
+        printk(KERN_ERR "Result would have been %llu.\n", final_rapl - start_rapl);
+        redo_measurement = 1;
+    }
+    final_rapl -= start_rapl;
+    final_time -= start_time;
+    if (final_time < measurement_duration * 1000000)
+    {
+        printk(KERN_ERR "Measurement lasted only %llu ns.\n", final_time);
+        redo_measurement = 1;
+    }
+    final_pkg_c3 -= start_pkg_c3;
+    final_pkg_c6 -= start_pkg_c6;
+    final_pkg_c7 -= start_pkg_c7;
+
+    if (redo_measurement)
+    {
+        printk(KERN_ERR "Redoing Measurement!\n");
+    }
+}
+
+static inline void evaluate_cpu(int this_cpu)
+{
+    per_cpu(final_c3, this_cpu) -= per_cpu(start_c3, this_cpu);
+    per_cpu(final_c6, this_cpu) -= per_cpu(start_c6, this_cpu);
+    per_cpu(final_c7, this_cpu) -= per_cpu(start_c7, this_cpu);
 }
 
 static int nmi_handler(unsigned int val, struct pt_regs *regs)
@@ -129,32 +246,13 @@ static int nmi_handler(unsigned int val, struct pt_regs *regs)
 
     if (!this_cpu)
     {
-        u64 final_rapl, elapsed_time;
-        rdmsrl_safe(MSR_PKG_ENERGY_STATUS, &final_rapl);
-        elapsed_time = local_clock() - start_time;
-        final_rapl &= TOTAL_ENERGY_CONSUMED_MASK;
-        consumed_energy = final_rapl - start_rapl;
-
-        if (elapsed_time < measurement_duration * 1000000)
-        {
-            printk(KERN_ERR "Measurement lasted only %llu ns.\n", elapsed_time);
-            redo_measurement = 1;
-        }
-        if (final_rapl <= start_rapl)
-        {
-            printk(KERN_ERR "Result would have been %llu.\n", consumed_energy);
-            redo_measurement = 1;
-        }
-
-        if (redo_measurement)
-        {
-            printk(KERN_ERR "Redoing Measurement!\n");
-        }
-
         end_of_measurement = 1;
-
         apic->send_IPI_allbutself(NMI_VECTOR);
+
+        set_global_final_values();
     }
+
+    set_cpu_final_values(this_cpu);
 
     if (!end_of_measurement)
     {
@@ -183,6 +281,21 @@ static inline void wait_for_rapl_update(void)
     } while (original_value == start_rapl);
 }
 
+static inline void set_global_start_values(void)
+{
+    start_time = local_clock();
+    rdmsrl_safe(MSR_PKG_C3_RESIDENCY, &start_pkg_c3);
+    rdmsrl_safe(MSR_PKG_C6_RESIDENCY, &start_pkg_c6);
+    rdmsrl_safe(MSR_PKG_C7_RESIDENCY, &start_pkg_c7);
+}
+
+static inline void set_cpu_start_values(int this_cpu)
+{
+    rdmsrl_safe(MSR_CORE_C3_RESIDENCY, &per_cpu(start_c3, this_cpu));
+    rdmsrl_safe(MSR_CORE_C6_RESIDENCY, &per_cpu(start_c6, this_cpu));
+    rdmsrl_safe(MSR_CORE_C7_RESIDENCY, &per_cpu(start_c7, this_cpu));
+}
+
 static inline void sync(int this_cpu)
 {
     atomic_inc(&sync_var);
@@ -192,13 +305,19 @@ static inline void sync(int this_cpu)
         {
         }
         wait_for_rapl_update();
-        start_time = local_clock();
+        set_global_start_values();
+        atomic_inc(&sync_var);
+        set_cpu_start_values(this_cpu);
         setup_hpet_for_measurement(measurement_duration, hpet_pin);
         atomic_inc(&sync_var);
     }
     else
     {
         while (atomic_read(&sync_var) < cpus_present + 1)
+        {
+        }
+        set_cpu_start_values(this_cpu);
+        while (atomic_read(&sync_var) < cpus_present + 2)
         {
         }
     }
@@ -257,6 +376,22 @@ static void per_cpu_func(void *info)
     put_cpu();
 }
 
+static inline void commit_results(unsigned number)
+{
+    pkg_stats.energy_consumption[number] = final_rapl * rapl_unit;
+    pkg_stats.c3[number] = final_pkg_c3;
+    pkg_stats.c6[number] = final_pkg_c6;
+    pkg_stats.c7[number] = final_pkg_c7;
+
+    for (unsigned i = 0; i < cpus_present; ++i)
+    {
+        cpu_stats[i].wakeups[number] = per_cpu(wakeups, i);
+        cpu_stats[i].c3[number] = per_cpu(final_c3, i);
+        cpu_stats[i].c6[number] = per_cpu(final_c6, i);
+        cpu_stats[i].c7[number] = per_cpu(final_c7, i);
+    }
+}
+
 static void measure(unsigned number)
 {
     do
@@ -269,12 +404,14 @@ static void measure(unsigned number)
 
         on_each_cpu(per_cpu_func, NULL, 1);
 
-        measurement_results[number] = consumed_energy * rapl_unit;
+        evaluate_global();
         for (unsigned i = 0; i < cpus_present; ++i)
-            cpu_stats[i].wakeups[number] = per_cpu(wakeups, i);
+            evaluate_cpu(i);
 
         restore_hpet_after_measurement();
     } while (redo_measurement);
+
+    commit_results(number);
 }
 
 // Get the unit of the PKG_ENERGY_STATUS MSR in 0.1 microJoule
@@ -304,11 +441,13 @@ static inline u32 get_cstate_hint(void)
 
 static int mwait_init(void)
 {
+    int err;
+
     u32 a = 0x1, b, c, d;
     asm("cpuid;"
         : "=a"(a), "=b"(b), "=c"(c), "=d"(d)
         : "0"(a));
-    if (!(c & 0b1000))
+    if (!(c & (1 << 3)))
     {
         printk(KERN_ERR "WARNING: Mwait not supported.\n");
     }
@@ -317,9 +456,18 @@ static int mwait_init(void)
     asm("cpuid;"
         : "=a"(a), "=b"(b), "=c"(c), "=d"(d)
         : "0"(a));
-    if (!(c & 0b1))
+    if (!(c & 1))
     {
         printk(KERN_ERR "WARNING: Mwait Power Management not supported.\n");
+    }
+
+    a = 0x80000007;
+    asm("cpuid;"
+        : "=a"(a), "=b"(b), "=c"(c), "=d"(d)
+        : "0"(a));
+    if (!(d & (1 << 8)))
+    {
+        printk(KERN_ERR "WARNING: TSC not invariant, sleepstate statistics potentially meaningless.\n");
     }
 
     mwait_hint = 0;
@@ -359,19 +507,13 @@ static int mwait_init(void)
 
     restore_ioapic_after_measurement();
 
-    kobj_ref = kobject_create_and_add("mwait_measurements", NULL);
+    err = kobject_init_and_add(&(pkg_stats.kobject), &pkg_ktype, NULL, "mwait_measurements");
     for (unsigned i = 0; i < cpus_present; ++i)
     {
-        if (kobject_init_and_add(&(cpu_stats[i].kobject), &ktype, kobj_ref, "cpu%u", i))
-            printk(KERN_ERR "ERROR: Could not properly initialize CPU stat structure in the sysfs.\n");
+        err |= kobject_init_and_add(&(cpu_stats[i].kobject), &cpu_ktype, &(pkg_stats.kobject), "cpu%u", i);
     }
-    if (sysfs_create_file(kobj_ref, &measurement_results_attr.attr))
-    {
-        printk(KERN_ERR "ERROR: Could not create sysfs file, aborting!\n");
-        sysfs_remove_file(kobj_ref, &measurement_results_attr.attr);
-        kobject_put(kobj_ref);
-        return 1;
-    }
+    if (err)
+        printk(KERN_ERR "ERROR: Could not properly initialize CPU stat structure in the sysfs.\n");
 
     printk(KERN_INFO "MWAIT: Measurements done.\n");
 
@@ -380,12 +522,11 @@ static int mwait_init(void)
 
 static void mwait_exit(void)
 {
-    sysfs_remove_file(kobj_ref, &measurement_results_attr.attr);
     for (unsigned i = 0; i < cpus_present; ++i)
     {
         kobject_del(&(cpu_stats[i].kobject));
     }
-    kobject_put(kobj_ref);
+    kobject_del(&(pkg_stats.kobject));
 
     unregister_nmi_handler(NMI_UNKNOWN, "nmi_handler");
 }
