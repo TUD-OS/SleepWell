@@ -42,6 +42,8 @@ static struct pkg_stat
 {
     struct kobject kobject;
     u64 energy_consumption[MAX_NUMBER_OF_MEASUREMENTS];
+    u64 total_tsc[MAX_NUMBER_OF_MEASUREMENTS];
+    u64 c2[MAX_NUMBER_OF_MEASUREMENTS];
     u64 c3[MAX_NUMBER_OF_MEASUREMENTS];
     u64 c6[MAX_NUMBER_OF_MEASUREMENTS];
     u64 c7[MAX_NUMBER_OF_MEASUREMENTS];
@@ -65,6 +67,8 @@ DEFINE_PER_CPU(u64, start_c7);
 DEFINE_PER_CPU(u64, final_c7);
 static u64 start_time, final_time;
 static u64 start_rapl, final_rapl;
+static u64 start_tsc, final_tsc;
+static u64 start_pkg_c2, final_pkg_c2;
 static u64 start_pkg_c3, final_pkg_c3;
 static u64 start_pkg_c6, final_pkg_c6;
 static u64 start_pkg_c7, final_pkg_c7;
@@ -84,6 +88,12 @@ static int hpet_pin;
 static struct attribute pkg_energy_consumption_attribute = {
     .name = "pkg_energy_consumption",
     .mode = 0444};
+static struct attribute total_tsc_attribute = {
+    .name = "total_tsc",
+    .mode = 0444};
+static struct attribute pkg_c2_attribute = {
+    .name = "pkg_c2",
+    .mode = 0444};
 static struct attribute pkg_c3_attribute = {
     .name = "pkg_c3",
     .mode = 0444};
@@ -95,6 +105,8 @@ static struct attribute pkg_c7_attribute = {
     .mode = 0444};
 static struct attribute *pkg_stats_attributes[] = {
     &pkg_energy_consumption_attribute,
+    &total_tsc_attribute,
+    &pkg_c2_attribute,
     &pkg_c3_attribute,
     &pkg_c6_attribute,
     &pkg_c7_attribute,
@@ -169,6 +181,10 @@ static ssize_t show_pkg_stats(struct kobject *kobj, struct attribute *attr, char
     struct pkg_stat *stat = container_of(kobj, struct pkg_stat, kobject);
     if (strcmp(attr->name, "pkg_energy_consumption") == 0)
         return format_array_into_buffer(stat->energy_consumption, buf);
+    if (strcmp(attr->name, "total_tsc") == 0)
+        return format_array_into_buffer(stat->total_tsc, buf);
+    if (strcmp(attr->name, "pkg_c2") == 0)
+        return format_array_into_buffer(stat->c2, buf);
     if (strcmp(attr->name, "pkg_c3") == 0)
         return format_array_into_buffer(stat->c3, buf);
     if (strcmp(attr->name, "pkg_c6") == 0)
@@ -196,6 +212,8 @@ static inline void set_global_final_values(void)
 {
     rdmsrl_safe(MSR_PKG_ENERGY_STATUS, &final_rapl);
     final_time = local_clock();
+    final_tsc = rdtsc();
+    rdmsrl_safe(MSR_PKG_C2_RESIDENCY, &final_pkg_c2);
     rdmsrl_safe(MSR_PKG_C3_RESIDENCY, &final_pkg_c3);
     rdmsrl_safe(MSR_PKG_C6_RESIDENCY, &final_pkg_c6);
     rdmsrl_safe(MSR_PKG_C7_RESIDENCY, &final_pkg_c7);
@@ -223,6 +241,8 @@ static inline void evaluate_global(void)
         printk(KERN_ERR "Measurement lasted only %llu ns.\n", final_time);
         redo_measurement = 1;
     }
+    final_tsc -= start_tsc;
+    final_pkg_c2 -= start_pkg_c2;
     final_pkg_c3 -= start_pkg_c3;
     final_pkg_c6 -= start_pkg_c6;
     final_pkg_c7 -= start_pkg_c7;
@@ -284,6 +304,8 @@ static inline void wait_for_rapl_update(void)
 static inline void set_global_start_values(void)
 {
     start_time = local_clock();
+    start_tsc = rdtsc();
+    rdmsrl_safe(MSR_PKG_C2_RESIDENCY, &start_pkg_c2);
     rdmsrl_safe(MSR_PKG_C3_RESIDENCY, &start_pkg_c3);
     rdmsrl_safe(MSR_PKG_C6_RESIDENCY, &start_pkg_c6);
     rdmsrl_safe(MSR_PKG_C7_RESIDENCY, &start_pkg_c7);
@@ -379,6 +401,8 @@ static void per_cpu_func(void *info)
 static inline void commit_results(unsigned number)
 {
     pkg_stats.energy_consumption[number] = final_rapl * rapl_unit;
+    pkg_stats.total_tsc[number] = final_tsc;
+    pkg_stats.c2[number] = final_pkg_c2;
     pkg_stats.c3[number] = final_pkg_c3;
     pkg_stats.c6[number] = final_pkg_c6;
     pkg_stats.c7[number] = final_pkg_c7;
