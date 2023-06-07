@@ -12,6 +12,7 @@
 #include <linux/sched/clock.h>
 
 #define TOTAL_ENERGY_CONSUMED_MASK (0xffffffff)
+#define IA32_FIXED_CTR2 (0x30b)
 
 #define MAX_NUMBER_OF_MEASUREMENTS (1000)
 #define MAX_CPUS (32)
@@ -53,12 +54,15 @@ static struct cpu_stat
 {
     struct kobject kobject;
     u64 wakeups[MAX_NUMBER_OF_MEASUREMENTS];
+    u64 unhalted[MAX_NUMBER_OF_MEASUREMENTS];
     u64 c3[MAX_NUMBER_OF_MEASUREMENTS];
     u64 c6[MAX_NUMBER_OF_MEASUREMENTS];
     u64 c7[MAX_NUMBER_OF_MEASUREMENTS];
 } cpu_stats[MAX_CPUS];
 
 DEFINE_PER_CPU(u64, wakeups);
+DEFINE_PER_CPU(u64, start_unhalted);
+DEFINE_PER_CPU(u64, final_unhalted);
 DEFINE_PER_CPU(u64, start_c3);
 DEFINE_PER_CPU(u64, final_c3);
 DEFINE_PER_CPU(u64, start_c6);
@@ -119,6 +123,9 @@ static const struct attribute_group *pkg_stats_groups[] = {
 static struct attribute wakeups_attribute = {
     .name = "wakeups",
     .mode = 0444};
+static struct attribute unhalted_attribute = {
+    .name = "unhalted",
+    .mode = 0444};
 static struct attribute c3_attribute = {
     .name = "c3",
     .mode = 0444};
@@ -130,6 +137,7 @@ static struct attribute c7_attribute = {
     .mode = 0444};
 static struct attribute *cpu_stats_attributes[] = {
     &wakeups_attribute,
+    &unhalted_attribute,
     &c3_attribute,
     &c6_attribute,
     &c7_attribute,
@@ -199,6 +207,8 @@ static ssize_t show_cpu_stats(struct kobject *kobj, struct attribute *attr, char
     struct cpu_stat *stat = container_of(kobj, struct cpu_stat, kobject);
     if (strcmp(attr->name, "wakeups") == 0)
         return format_array_into_buffer(stat->wakeups, buf);
+    if (strcmp(attr->name, "unhalted") == 0)
+        return format_array_into_buffer(stat->unhalted, buf);
     if (strcmp(attr->name, "c3") == 0)
         return format_array_into_buffer(stat->c3, buf);
     if (strcmp(attr->name, "c6") == 0)
@@ -221,6 +231,7 @@ static inline void set_global_final_values(void)
 
 static inline void set_cpu_final_values(int this_cpu)
 {
+    rdmsrl_safe(IA32_FIXED_CTR2, &per_cpu(final_unhalted, this_cpu));
     rdmsrl_safe(MSR_CORE_C3_RESIDENCY, &per_cpu(final_c3, this_cpu));
     rdmsrl_safe(MSR_CORE_C6_RESIDENCY, &per_cpu(final_c6, this_cpu));
     rdmsrl_safe(MSR_CORE_C7_RESIDENCY, &per_cpu(final_c7, this_cpu));
@@ -255,6 +266,7 @@ static inline void evaluate_global(void)
 
 static inline void evaluate_cpu(int this_cpu)
 {
+    per_cpu(final_unhalted, this_cpu) -= per_cpu(start_unhalted, this_cpu);
     per_cpu(final_c3, this_cpu) -= per_cpu(start_c3, this_cpu);
     per_cpu(final_c6, this_cpu) -= per_cpu(start_c6, this_cpu);
     per_cpu(final_c7, this_cpu) -= per_cpu(start_c7, this_cpu);
@@ -313,6 +325,7 @@ static inline void set_global_start_values(void)
 
 static inline void set_cpu_start_values(int this_cpu)
 {
+    rdmsrl_safe(IA32_FIXED_CTR2, &per_cpu(start_unhalted, this_cpu));
     rdmsrl_safe(MSR_CORE_C3_RESIDENCY, &per_cpu(start_c3, this_cpu));
     rdmsrl_safe(MSR_CORE_C6_RESIDENCY, &per_cpu(start_c6, this_cpu));
     rdmsrl_safe(MSR_CORE_C7_RESIDENCY, &per_cpu(start_c7, this_cpu));
@@ -410,6 +423,7 @@ static inline void commit_results(unsigned number)
     for (unsigned i = 0; i < cpus_present; ++i)
     {
         cpu_stats[i].wakeups[number] = per_cpu(wakeups, i);
+        cpu_stats[i].unhalted[number] = per_cpu(final_unhalted, i);
         cpu_stats[i].c3[number] = per_cpu(final_c3, i);
         cpu_stats[i].c6[number] = per_cpu(final_c6, i);
         cpu_stats[i].c7[number] = per_cpu(final_c7, i);
