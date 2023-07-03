@@ -13,6 +13,8 @@
 
 #define TOTAL_ENERGY_CONSUMED_MASK (0xffffffff)
 #define IA32_FIXED_CTR2 (0x30b)
+#define IA32_FIXED_CTR_CTRL (0x38d)
+#define IA32_PERF_GLOBAL_CTRL (0x38f)
 
 #define MAX_NUMBER_OF_MEASUREMENTS (1000)
 #define MAX_CPUS (32)
@@ -506,6 +508,25 @@ static void set_cpu_info(u32 a)
     }
 }
 
+static void per_cpu_init(void* info) {
+    int err = 0;
+
+    u64 ia32_fixed_ctr_ctrl;
+    u64 ia32_perf_global_ctrl;
+
+    err = rdmsrl_safe(IA32_FIXED_CTR_CTRL, &ia32_fixed_ctr_ctrl);
+    ia32_fixed_ctr_ctrl |= 0b11 << 8;
+    err |= wrmsrl_safe(IA32_FIXED_CTR_CTRL, ia32_fixed_ctr_ctrl);
+
+    err |= rdmsrl_safe(IA32_PERF_GLOBAL_CTRL, &ia32_perf_global_ctrl);
+    ia32_perf_global_ctrl |= 1l << 34;
+    err |= wrmsrl_safe(IA32_PERF_GLOBAL_CTRL, ia32_perf_global_ctrl);
+
+    if(err) {
+        printk(KERN_ERR "WARNING: Could not enable 'unhalted' register.\n");
+    }
+}
+
 static int mwait_init(void)
 {
     int err;
@@ -538,6 +559,8 @@ static int mwait_init(void)
     {
         printk(KERN_ERR "WARNING: TSC not invariant, sleepstate statistics potentially meaningless.\n");
     }
+
+    on_each_cpu(per_cpu_init, NULL, 1);
 
     mwait_hint = 0;
     mwait_hint += target_subcstate & MWAIT_SUBSTATE_MASK;
