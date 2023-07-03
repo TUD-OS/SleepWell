@@ -82,7 +82,10 @@ static volatile int dummy;
 static atomic_t sync_var;
 static bool redo_measurement;
 static bool end_of_measurement;
+static int first;
 
+static u32 cpu_model;
+static u32 cpu_family;
 static u32 rapl_unit;
 static unsigned cpus_present;
 static u32 mwait_hint;
@@ -278,6 +281,12 @@ static int nmi_handler(unsigned int val, struct pt_regs *regs)
 
     if (!this_cpu)
     {
+        if (cpu_family == 0x6 && cpu_model == 0x5e && !first)
+        {
+            ++first;
+            return NMI_HANDLED;
+        }
+
         end_of_measurement = 1;
         apic->send_IPI_allbutself(NMI_VECTOR);
 
@@ -436,6 +445,7 @@ static void measure(unsigned number)
     {
         redo_measurement = 0;
         end_of_measurement = 0;
+        first = 0;
         for (unsigned i = 0; i < cpus_present; ++i)
             per_cpu(wakeups, i) = 0;
         atomic_set(&sync_var, 0);
@@ -477,6 +487,25 @@ static inline u32 get_cstate_hint(void)
     return target_cstate - 1;
 }
 
+// Model and Family calculation as specified in the Intel Software Developer's Manual
+static void set_cpu_info(u32 a)
+{
+    u32 family_id = (a >> 8) & 0xf;
+    u32 model_id = (a >> 4) & 0xf;
+
+    cpu_family = family_id;
+    if (family_id == 0xf)
+    {
+        cpu_family += (a >> 20) & 0xff;
+    }
+
+    cpu_model = model_id;
+    if (family_id == 0x6 || family_id == 0xf)
+    {
+        cpu_model += ((a >> 16) & 0xf) << 4;
+    }
+}
+
 static int mwait_init(void)
 {
     int err;
@@ -489,6 +518,8 @@ static int mwait_init(void)
     {
         printk(KERN_ERR "WARNING: Mwait not supported.\n");
     }
+    set_cpu_info(a);
+    printk(KERN_INFO "CPU FAMILY: 0x%x, CPU Model: 0x%x\n", cpu_family, cpu_model);
 
     a = 0x5;
     asm("cpuid;"
