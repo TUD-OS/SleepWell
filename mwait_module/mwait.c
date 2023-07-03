@@ -277,13 +277,17 @@ static inline void evaluate_cpu(int this_cpu)
     per_cpu(final_c7, this_cpu) -= per_cpu(start_c7, this_cpu);
 }
 
+static bool is_cpu_model(u32 family, u32 model) {
+    return cpu_family == family && cpu_model == model;
+}
+
 static int nmi_handler(unsigned int val, struct pt_regs *regs)
 {
     int this_cpu = smp_processor_id();
 
     if (!this_cpu)
     {
-        if (cpu_family == 0x6 && cpu_model == 0x5e && !first)
+        if (is_cpu_model(0x6, 0x5e) && !first)
         {
             ++first;
             return NMI_HANDLED;
