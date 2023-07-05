@@ -1,52 +1,41 @@
 import sys
+import os
 import pandas as pd
 import matplotlib.pyplot as plt
 
 results_directory = sys.argv[1]
 
-def add_pkg_energy_consumption(df, name):
-    new_df = pd.read_csv(results_directory+name+"/pkg_energy_consumption", names=[name])
+def add_pkg_energy_consumption(df, directory, name):
+    new_df = pd.read_csv(directory+"/"+name+"/pkg_energy_consumption", names=[name])
     new_df /= 10000000
     df.insert(len(df.columns), name, new_df[name])
 
 df = pd.DataFrame()
-add_pkg_energy_consumption(df, "C0")
-add_pkg_energy_consumption(df, "C1")
-add_pkg_energy_consumption(df, "C2")
-add_pkg_energy_consumption(df, "C3")
-add_pkg_energy_consumption(df, "C4")
-add_pkg_energy_consumption(df, "C5")
-add_pkg_energy_consumption(df, "C6")
-add_pkg_energy_consumption(df, "C7")
-add_pkg_energy_consumption(df, "C8")
-add_pkg_energy_consumption(df, "C9")
-add_pkg_energy_consumption(df, "C10")
+directory = results_directory+"cstates"
+for file in os.listdir(directory):
+    add_pkg_energy_consumption(df, directory, os.fsdecode(file))
+df = df.reindex(sorted(df.columns), axis=1)
 plot = df.plot.box()
 plot.set_ylim(ymin=0)
 plot.set_ylabel("Joule")
-plot.figure.savefig('output/sleepstates.png')
+plot.figure.savefig('output/pkg_power_consumption_by_cstate.png')
 
 df = pd.DataFrame()
-add_pkg_energy_consumption(df, "0")
-add_pkg_energy_consumption(df, "1")
-add_pkg_energy_consumption(df, "2")
-add_pkg_energy_consumption(df, "3")
-add_pkg_energy_consumption(df, "4")
-add_pkg_energy_consumption(df, "5")
-add_pkg_energy_consumption(df, "6")
-add_pkg_energy_consumption(df, "7")
-add_pkg_energy_consumption(df, "8")
+directory = results_directory+"cores_mwait"
+for file in os.listdir(directory):
+    add_pkg_energy_consumption(df, directory, os.fsdecode(file))
+df = df.reindex(sorted(df.columns), axis=1)
 plot = df.plot.box()
 plot.set_ylim(ymin=0)
 plot.set_ylabel("Joule")
 plot.figure.savefig('output/no_mwait.png')
 
-def add_pkg_cstates(unspecified, pc2, pc3, pc6, pc7, name):
-    total_tsc_series = pd.read_csv(results_directory+name+"/total_tsc", header=None).iloc[:,0]
-    pc2_series = pd.read_csv(results_directory+name+"/pkg_c2", header=None).iloc[:,0]
-    pc3_series = pd.read_csv(results_directory+name+"/pkg_c3", header=None).iloc[:,0]
-    pc6_series = pd.read_csv(results_directory+name+"/pkg_c6", header=None).iloc[:,0]
-    pc7_series = pd.read_csv(results_directory+name+"/pkg_c7", header=None).iloc[:,0]
+def add_pkg_cstates(unspecified, pc2, pc3, pc6, pc7, directory, name):
+    total_tsc_series = pd.read_csv(directory+"/total_tsc", header=None).iloc[:,0]
+    pc2_series = pd.read_csv(directory+"/pkg_c2", header=None).iloc[:,0]
+    pc3_series = pd.read_csv(directory+"/pkg_c3", header=None).iloc[:,0]
+    pc6_series = pd.read_csv(directory+"/pkg_c6", header=None).iloc[:,0]
+    pc7_series = pd.read_csv(directory+"/pkg_c7", header=None).iloc[:,0]
 
     unspecified_mean = ((total_tsc_series - pc2_series - pc3_series - pc6_series - pc7_series)/total_tsc_series).mean()
     pc2_mean = (pc2_series/total_tsc_series).mean()
@@ -67,19 +56,73 @@ pc3 = []
 pc6 = []
 pc7 = []
 index = []
-add_pkg_cstates(unspecified, pc2, pc3, pc6, pc7, "C0")
-add_pkg_cstates(unspecified, pc2, pc3, pc6, pc7, "C1")
-add_pkg_cstates(unspecified, pc2, pc3, pc6, pc7, "C2")
-add_pkg_cstates(unspecified, pc2, pc3, pc6, pc7, "C3")
-add_pkg_cstates(unspecified, pc2, pc3, pc6, pc7, "C4")
-add_pkg_cstates(unspecified, pc2, pc3, pc6, pc7, "C5")
-add_pkg_cstates(unspecified, pc2, pc3, pc6, pc7, "C6")
-add_pkg_cstates(unspecified, pc2, pc3, pc6, pc7, "C7")
-add_pkg_cstates(unspecified, pc2, pc3, pc6, pc7, "C8")
-add_pkg_cstates(unspecified, pc2, pc3, pc6, pc7, "C9")
-add_pkg_cstates(unspecified, pc2, pc3, pc6, pc7, "C10")
+directory = results_directory+"cstates"
+for file in os.listdir(directory):
+    add_pkg_cstates(unspecified, pc2, pc3, pc6, pc7, directory+"/"+os.fsdecode(file), os.fsdecode(file))
 df = pd.DataFrame({'unspecified': unspecified,
                    'pc2': pc2, 'pc3': pc3, 'pc6': pc6, 'pc7': pc7}, 
                    index=index)
+df.sort_index(axis=0, inplace=True)
 plot = df.plot.bar(stacked=True)
 plot.figure.savefig('output/pkg_cstates.png')
+
+def calculate_core_average(directory, filename, total_tsc, data_function):
+    i = 0
+    series = None
+    while True:
+        if not os.path.exists(directory+"/cpu"+str(i)):
+            break
+
+        if series is None:
+            series = data_function(total_tsc, directory, i, filename)
+        else:
+            series += data_function(total_tsc, directory, i, filename)
+        
+        i += 1
+    
+    return series / i
+
+
+def add_core_cstates(unspecified, unhalted, cc3, cc6, cc7, directory, name):
+    generic_lambda = lambda total_tsc, directory, i, filename: pd.read_csv(directory+"/cpu"+str(i)+filename, header=None).iloc[:,0]
+    unspecified_lambda = lambda total_tsc, directory, i, filename: total_tsc \
+        - generic_lambda(None, directory, i, "/unhalted") \
+        - generic_lambda(None, directory, i, "/c3") \
+        - generic_lambda(None, directory, i, "/c6") \
+        - generic_lambda(None, directory, i, "/c7") 
+
+    total_tsc_series = pd.read_csv(directory+"/total_tsc", header=None).iloc[:,0]
+    unspecified_series = calculate_core_average(directory, None, total_tsc_series, unspecified_lambda)
+    unhalted_series = calculate_core_average(directory, "/unhalted", None, generic_lambda)
+    cc3_series = calculate_core_average(directory, "/c3", None, generic_lambda)
+    cc6_series = calculate_core_average(directory, "/c6", None, generic_lambda)
+    cc7_series = calculate_core_average(directory, "/c7", None, generic_lambda)
+
+    unspecified_mean = (unspecified_series/total_tsc_series).mean()
+    unhalted_mean = (unhalted_series/total_tsc_series).mean()
+    cc3_mean = (cc3_series/total_tsc_series).mean()
+    cc6_mean = (cc6_series/total_tsc_series).mean()
+    cc7_mean = (cc7_series/total_tsc_series).mean()
+
+    unspecified.append(unspecified_mean)
+    unhalted.append(unhalted_mean)
+    cc3.append(cc3_mean)
+    cc6.append(cc6_mean)
+    cc7.append(cc7_mean)
+    index.append(name)
+
+unspecified = []
+unhalted = []
+cc3 = []
+cc6 = []
+cc7 = []
+index = []
+directory = results_directory+"cstates"
+for file in os.listdir(directory):
+    add_core_cstates(unspecified, unhalted, cc3, cc6, cc7, directory+"/"+os.fsdecode(file), os.fsdecode(file))
+df = pd.DataFrame({'unspecified': unspecified, 'unhalted': unhalted,
+                   'cc3': cc3, 'cc6': cc6, 'cc7': cc7}, 
+                   index=index)
+df.sort_index(axis=0, inplace=True)
+plot = df.plot.bar(stacked=True)
+plot.figure.savefig('output/core_cstates.png')
