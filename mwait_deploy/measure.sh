@@ -26,13 +26,23 @@ function measure {
 # measurements
 MEASUREMENT_NAME=cstates
 mkdir $RESULTS_DIR/$MEASUREMENT_NAME
+
+# Skylake
+#measure "C0" "target_cstate=0" $MEASUREMENT_NAME
+#measure "C1" "target_cstate=1" $MEASUREMENT_NAME
+#measure "C1E" "target_cstate=1 target_subcstate=1" $MEASUREMENT_NAME
+#measure "C3" "target_cstate=2" $MEASUREMENT_NAME
+#measure "C6" "target_cstate=3" $MEASUREMENT_NAME
+#measure "C7s" "target_cstate=4 target_subcstate=3" $MEASUREMENT_NAME
+#measure "C8" "target_cstate=5" $MEASUREMENT_NAME
+
+# Haswell
 measure "C0" "target_cstate=0" $MEASUREMENT_NAME
 measure "C1" "target_cstate=1" $MEASUREMENT_NAME
 measure "C1E" "target_cstate=1 target_subcstate=1" $MEASUREMENT_NAME
 measure "C3" "target_cstate=2" $MEASUREMENT_NAME
 measure "C6" "target_cstate=3" $MEASUREMENT_NAME
-measure "C7s" "target_cstate=4 target_subcstate=3" $MEASUREMENT_NAME
-measure "C8" "target_cstate=5" $MEASUREMENT_NAME
+measure "C7s" "target_cstate=4 target_subcstate=2" $MEASUREMENT_NAME
 
 MEASUREMENT_NAME=cores_mwait
 mkdir $RESULTS_DIR/$MEASUREMENT_NAME
