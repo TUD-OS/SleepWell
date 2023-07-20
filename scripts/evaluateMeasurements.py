@@ -2,6 +2,12 @@ import sys
 import os
 import pandas as pd
 import matplotlib.pyplot as plt
+import matplotlib.ticker as mtick
+
+plt.rcParams['mathtext.fontset'] = 'cm'
+plt.rcParams['font.family'] = 'STIXGeneral'
+plt.rcParams["figure.figsize"] = (3.4,2.55)
+plt.rcParams['figure.dpi'] = 300
 
 results_directory = sys.argv[1]
 
@@ -16,9 +22,9 @@ for file in os.listdir(directory):
     add_pkg_energy_consumption(df, directory, os.fsdecode(file))
 df = df.reindex(sorted(df.columns), axis=1)
 plot = df.plot.box()
-plot.set_ylim(ymin=0)
+plot.set_ylim(ymin=0, ymax=6)
 plot.set_ylabel("Joule")
-plot.figure.savefig('output/pkg_power_consumption_by_cstate.png')
+plot.figure.savefig('output/pkg_power_consumption_by_cstate.pdf')
 
 df = pd.DataFrame()
 directory = results_directory+"cores_mwait"
@@ -26,9 +32,9 @@ for file in os.listdir(directory):
     add_pkg_energy_consumption(df, directory, os.fsdecode(file))
 df = df.reindex(sorted(df.columns), axis=1)
 plot = df.plot.box()
-plot.set_ylim(ymin=0)
+plot.set_ylim(ymin=0, ymax=7)
 plot.set_ylabel("Joule")
-plot.figure.savefig('output/no_mwait.png')
+plot.figure.savefig('output/no_mwait.pdf')
 
 def add_pkg_cstates(unspecified, pc2, pc3, pc6, pc7, directory, name):
     total_tsc_series = pd.read_csv(directory+"/total_tsc", header=None).iloc[:,0]
@@ -64,7 +70,10 @@ df = pd.DataFrame({'unspecified': unspecified,
                    index=index)
 df.sort_index(axis=0, inplace=True)
 plot = df.plot.bar(stacked=True)
-plot.figure.savefig('output/pkg_cstates.png')
+plot.yaxis.set_major_formatter(mtick.PercentFormatter(1.0))
+plt.tight_layout()
+plt.legend(loc='center right')
+plot.figure.savefig('output/pkg_cstates.pdf')
 
 def calculate_core_average(directory, filename, total_tsc, data_function):
     i = 0
@@ -125,4 +134,7 @@ df = pd.DataFrame({'unspecified': unspecified, 'unhalted': unhalted,
                    index=index)
 df.sort_index(axis=0, inplace=True)
 plot = df.plot.bar(stacked=True)
-plot.figure.savefig('output/core_cstates.png')
+plot.yaxis.set_major_formatter(mtick.PercentFormatter(1.0))
+plt.tight_layout()
+plt.legend(loc='center right')
+plot.figure.savefig('output/core_cstates.pdf')
