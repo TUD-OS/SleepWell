@@ -36,6 +36,22 @@ plot.set_ylim(ymin=0, ymax=7)
 plot.set_ylabel("Joule")
 plot.figure.savefig('output/no_mwait.pdf')
 
+def add_latencies(df, directory, name):
+    new_df = pd.read_csv(directory+"/"+name+"/wakeup_time", names=[name])
+    new_df /= 1000
+    df.insert(len(df.columns), name, new_df[name])
+
+df = pd.DataFrame()
+directory = results_directory+"cstates"
+for file in os.listdir(directory):
+    add_latencies(df, directory, os.fsdecode(file))
+df = df.reindex(sorted(df.columns), axis=1)
+plot = df.plot.box()
+plot.set_ylim(ymin=0)
+plot.set_ylabel("microseconds")
+plt.tight_layout()
+plot.figure.savefig('output/latencies.pdf')
+
 def add_pkg_cstates(unspecified, pc2, pc3, pc6, pc7, directory, name):
     total_tsc_series = pd.read_csv(directory+"/total_tsc", header=None).iloc[:,0]
     pc2_series = pd.read_csv(directory+"/pkg_c2", header=None).iloc[:,0]

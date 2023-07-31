@@ -371,11 +371,7 @@ static inline void sync(int this_cpu)
         set_global_start_values();
         atomic_inc(&sync_var);
         set_cpu_start_values(this_cpu);
-
-        // take this value as late as possible
-        start_time = local_clock();
-        
-        setup_hpet_for_measurement(measurement_duration, hpet_pin);
+        start_time = setup_hpet_for_measurement(measurement_duration, hpet_pin);
         atomic_inc(&sync_var);
     }
     else
