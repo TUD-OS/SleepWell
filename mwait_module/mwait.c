@@ -46,6 +46,7 @@ static struct pkg_stat
     struct kobject kobject;
     u64 energy_consumption[MAX_NUMBER_OF_MEASUREMENTS];
     u64 total_tsc[MAX_NUMBER_OF_MEASUREMENTS];
+    u64 wakeup_time[MAX_NUMBER_OF_MEASUREMENTS];
     u64 c2[MAX_NUMBER_OF_MEASUREMENTS];
     u64 c3[MAX_NUMBER_OF_MEASUREMENTS];
     u64 c6[MAX_NUMBER_OF_MEASUREMENTS];
@@ -78,6 +79,7 @@ static u64 start_pkg_c2, final_pkg_c2;
 static u64 start_pkg_c3, final_pkg_c3;
 static u64 start_pkg_c6, final_pkg_c6;
 static u64 start_pkg_c7, final_pkg_c7;
+static u64 wakeup_time;
 
 DEFINE_PER_CPU(int, trigger);
 static volatile int dummy;
@@ -100,6 +102,9 @@ static struct attribute pkg_energy_consumption_attribute = {
 static struct attribute total_tsc_attribute = {
     .name = "total_tsc",
     .mode = 0444};
+static struct attribute wakeup_time_attribute = {
+    .name = "wakeup_time",
+    .mode = 0444};
 static struct attribute pkg_c2_attribute = {
     .name = "pkg_c2",
     .mode = 0444};
@@ -115,6 +120,7 @@ static struct attribute pkg_c7_attribute = {
 static struct attribute *pkg_stats_attributes[] = {
     &pkg_energy_consumption_attribute,
     &total_tsc_attribute,
+    &wakeup_time_attribute,
     &pkg_c2_attribute,
     &pkg_c3_attribute,
     &pkg_c6_attribute,
@@ -196,6 +202,8 @@ static ssize_t show_pkg_stats(struct kobject *kobj, struct attribute *attr, char
         return format_array_into_buffer(stat->energy_consumption, buf);
     if (strcmp(attr->name, "total_tsc") == 0)
         return format_array_into_buffer(stat->total_tsc, buf);
+    if (strcmp(attr->name, "wakeup_time") == 0)
+        return format_array_into_buffer(stat->wakeup_time, buf);
     if (strcmp(attr->name, "pkg_c2") == 0)
         return format_array_into_buffer(stat->c2, buf);
     if (strcmp(attr->name, "pkg_c3") == 0)
@@ -226,7 +234,6 @@ static ssize_t show_cpu_stats(struct kobject *kobj, struct attribute *attr, char
 static inline void set_global_final_values(void)
 {
     rdmsrl_safe(MSR_PKG_ENERGY_STATUS, &final_rapl);
-    final_time = local_clock();
     final_tsc = rdtsc();
     rdmsrl_safe(MSR_PKG_C2_RESIDENCY, &final_pkg_c2);
     rdmsrl_safe(MSR_PKG_C3_RESIDENCY, &final_pkg_c3);
@@ -257,6 +264,7 @@ static inline void evaluate_global(void)
         printk(KERN_ERR "Measurement lasted only %llu ns.\n", final_time);
         redo_measurement = 1;
     }
+    wakeup_time = final_time - measurement_duration * 1000000;
     final_tsc -= start_tsc;
     final_pkg_c2 -= start_pkg_c2;
     final_pkg_c3 -= start_pkg_c3;
@@ -283,15 +291,21 @@ static bool is_cpu_model(u32 family, u32 model) {
 
 static int nmi_handler(unsigned int val, struct pt_regs *regs)
 {
+    // this measurement is taken here to get the value as early as possible
+    u64 final_time_local = local_clock();
+
     int this_cpu = smp_processor_id();
 
     if (!this_cpu)
     {
-        if (is_cpu_model(0x6, 0x5e) && !first)
+        if (!first && is_cpu_model(0x6, 0x5e))
         {
             ++first;
             return NMI_HANDLED;
         }
+
+        // only commit the taken time to the global variable if this point is reached
+        final_time = final_time_local;
 
         end_of_measurement = 1;
         apic->send_IPI_allbutself(NMI_VECTOR);
@@ -330,7 +344,6 @@ static inline void wait_for_rapl_update(void)
 
 static inline void set_global_start_values(void)
 {
-    start_time = local_clock();
     start_tsc = rdtsc();
     rdmsrl_safe(MSR_PKG_C2_RESIDENCY, &start_pkg_c2);
     rdmsrl_safe(MSR_PKG_C3_RESIDENCY, &start_pkg_c3);
@@ -358,6 +371,10 @@ static inline void sync(int this_cpu)
         set_global_start_values();
         atomic_inc(&sync_var);
         set_cpu_start_values(this_cpu);
+
+        // take this value as late as possible
+        start_time = local_clock();
+        
         setup_hpet_for_measurement(measurement_duration, hpet_pin);
         atomic_inc(&sync_var);
     }
@@ -430,6 +447,7 @@ static inline void commit_results(unsigned number)
 {
     pkg_stats.energy_consumption[number] = final_rapl * rapl_unit;
     pkg_stats.total_tsc[number] = final_tsc;
+    pkg_stats.wakeup_time[number] = wakeup_time;
     pkg_stats.c2[number] = final_pkg_c2;
     pkg_stats.c3[number] = final_pkg_c3;
     pkg_stats.c6[number] = final_pkg_c6;
@@ -582,7 +600,7 @@ static int mwait_init(void)
     if (cpus_mwait == -1)
         cpus_mwait = cpus_present;
 
-    register_nmi_handler(NMI_UNKNOWN, nmi_handler, 0, "nmi_handler");
+    register_nmi_handler(NMI_UNKNOWN, nmi_handler, NMI_FLAG_FIRST, "nmi_handler");
 
     apic_id_of_cpu0 = default_cpu_present_to_apicid(0);
 
