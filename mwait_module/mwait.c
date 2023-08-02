@@ -266,7 +266,7 @@ static inline void evaluate_global(void)
         printk(KERN_ERR "Measurement lasted only %llu ns.\n", final_time);
         redo_measurement = 1;
     }
-    wakeup_time = ((hpet_counter - hpet_comparator) * hpet_period) / 1000;
+    wakeup_time = ((hpet_counter - hpet_comparator) * hpet_period) / 1000000;
     final_tsc -= start_tsc;
     final_pkg_c2 -= start_pkg_c2;
     final_pkg_c3 -= start_pkg_c3;
