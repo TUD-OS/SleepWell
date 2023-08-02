@@ -79,7 +79,7 @@ static u64 start_pkg_c2, final_pkg_c2;
 static u64 start_pkg_c3, final_pkg_c3;
 static u64 start_pkg_c6, final_pkg_c6;
 static u64 start_pkg_c7, final_pkg_c7;
-static u64 wakeup_time;
+static u64 hpet_comparator, hpet_counter, wakeup_time;
 
 DEFINE_PER_CPU(int, trigger);
 static volatile int dummy;
@@ -95,6 +95,7 @@ static unsigned cpus_present;
 static u32 mwait_hint;
 static int apic_id_of_cpu0;
 static int hpet_pin;
+static u32 hpet_period;
 
 static struct attribute pkg_energy_consumption_attribute = {
     .name = "pkg_energy_consumption",
@@ -234,6 +235,7 @@ static ssize_t show_cpu_stats(struct kobject *kobj, struct attribute *attr, char
 static inline void set_global_final_values(void)
 {
     rdmsrl_safe(MSR_PKG_ENERGY_STATUS, &final_rapl);
+    final_time = local_clock();
     final_tsc = rdtsc();
     rdmsrl_safe(MSR_PKG_C2_RESIDENCY, &final_pkg_c2);
     rdmsrl_safe(MSR_PKG_C3_RESIDENCY, &final_pkg_c3);
@@ -264,7 +266,7 @@ static inline void evaluate_global(void)
         printk(KERN_ERR "Measurement lasted only %llu ns.\n", final_time);
         redo_measurement = 1;
     }
-    wakeup_time = final_time - measurement_duration * 1000000;
+    wakeup_time = ((hpet_counter - hpet_comparator) * hpet_period) / 1000;
     final_tsc -= start_tsc;
     final_pkg_c2 -= start_pkg_c2;
     final_pkg_c3 -= start_pkg_c3;
@@ -292,7 +294,7 @@ static bool is_cpu_model(u32 family, u32 model) {
 static int nmi_handler(unsigned int val, struct pt_regs *regs)
 {
     // this measurement is taken here to get the value as early as possible
-    u64 final_time_local = local_clock();
+    u64 hpet_counter_local = get_hpet_counter();
 
     int this_cpu = smp_processor_id();
 
@@ -305,7 +307,7 @@ static int nmi_handler(unsigned int val, struct pt_regs *regs)
         }
 
         // only commit the taken time to the global variable if this point is reached
-        final_time = final_time_local;
+        hpet_counter = hpet_counter_local;
 
         end_of_measurement = 1;
         apic->send_IPI_allbutself(NMI_VECTOR);
@@ -344,6 +346,7 @@ static inline void wait_for_rapl_update(void)
 
 static inline void set_global_start_values(void)
 {
+    start_time = local_clock();
     start_tsc = rdtsc();
     rdmsrl_safe(MSR_PKG_C2_RESIDENCY, &start_pkg_c2);
     rdmsrl_safe(MSR_PKG_C3_RESIDENCY, &start_pkg_c3);
@@ -371,7 +374,7 @@ static inline void sync(int this_cpu)
         set_global_start_values();
         atomic_inc(&sync_var);
         set_cpu_start_values(this_cpu);
-        start_time = setup_hpet_for_measurement(measurement_duration, hpet_pin);
+        hpet_comparator = setup_hpet_for_measurement(measurement_duration, hpet_pin);
         atomic_inc(&sync_var);
     }
     else
@@ -600,6 +603,7 @@ static int mwait_init(void)
 
     apic_id_of_cpu0 = default_cpu_present_to_apicid(0);
 
+    hpet_period = get_hpet_period();
     hpet_pin = select_hpet_pin();
     if (hpet_pin == -1)
     {
