@@ -5,7 +5,7 @@ Before being able to make measurements on a real machine, some setup is required
 ## 1. Compile and install custom linux kernel
 
 Since some small changes to the linux kernel code were necessary to achieve the required results, a custom kernel has to be installed first.
-The kernel source code can be found in the submodule ```linuxmwait``` in the root of this repository.
+The kernel source code can be found in the submodule ```linuxMWAIT``` in the root of this repository.
 Since there are multiple well documented ways to compile and install a custom linux kernel on a machine this README won`t give any further details at this point.
 
 ### Notes for starting on a real machine
