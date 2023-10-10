@@ -18,7 +18,23 @@ intremap=off
 
 ## 2. Compile kernel module
 
-## 3. 
+Our usual setup for using and developing this measurement tool was having an additional system where the development and also the evaluation of results takes place.
+The system under measurement (which is the one which needs the custom kernel) only needs to compile the kernel module and insert it.
+To facilitate this process, there are the 2 following scripts in the root of this repository:
+
+### ```deploy.sh```
+
+This script takes the IPv4 address of the system under measure as its' only parameter.
+Its' purpose is to copy all the files needed on the system under measurement to it and compile the kernel module.
+These files are prepared in the ```mwait_deploy``` folder.
+
+### ```measure.sh```
+
+This script as well takes the IPv4 address of the system to be measured as its' only parameter.
+It starts the script ```mwait_deploy/measure.sh``` that was transfered during the last execution of ```deploy.sh``` on the target machine.
+After this step has been successfully completed, it copies the measurement results from the measured machine to the ```output``` folder.
+As a last step it calls the ```scripts/evaluateMeasurements.py``` script to immediately produce some diagrams.
+These can also be found in the ```output``` folder.
 
 # Development
 
