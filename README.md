@@ -16,7 +16,7 @@ To avoid the Intel IOMMU driver interfering with our setup (specifically the rou
 intremap=off
 ```
 
-## 2. Compile kernel module
+## 2. Compile kernel module and measure
 
 Our usual setup for using and developing this measurement tool was having an additional system where the development and also the evaluation of results takes place.
 The system under measurement (which is the one which needs the custom kernel) only needs to compile the kernel module and insert it.
@@ -35,6 +35,16 @@ It starts the script ```mwait_deploy/measure.sh``` that was transfered during th
 After this step has been successfully completed, it copies the measurement results from the measured machine to the ```output``` folder.
 As a last step it calls the ```scripts/evaluateMeasurements.py``` script to immediately produce some diagrams.
 These can also be found in the ```output``` folder.
+
+# Configuring the measurement
+
+The script ```mwait_deploy/measure.sh``` describes what happens during a measurement run.
+Apart from some setup and cleanup, this also includes the specific circumstances that will be measured, e.g. which C-State will be entered or how many threads will execute mwait.
+By default, all the C-States used by the cpuidle driver on a Haswell system are measured, as well as each combination of threads doing mwait/threads in a busy loop.
+Additionally, the cpuidle driver C-States for a Skylake system are configured, but commented out, to enable an easy switch between the two generations.
+Further measurements can be specified here by calling the measure function.
+This function's parameters are the name of the specific measurement, then the parameters to be used when inserting the kernel module and finally the name of the folder to put the results in.
+For more information on the available parameters of the kernel module, please execute modinfo on the compiled module.
 
 # Development
 
