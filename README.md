@@ -23,7 +23,7 @@ intremap=off
 # Development
 
 To ease development, this project was set up to work with ```buildroot```, a software that can create bootable kernels and filesystem images from scratch.
-Since this was only used with emulators (namely ```qemu```), and those usually don't fully support machine specific features such as MSRs and mwait, this was only really useful in the early stages of development.
+Since this was only used with emulators (namely ```qemu```), and those usually don't fully support mwait or machine specific features such as MSRs, this was only really useful in the early stages of development.
 Despite this it is still possible to use the project on an emulator following these steps:
 
 ## Setup (first use only)
