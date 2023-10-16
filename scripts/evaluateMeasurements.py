@@ -45,9 +45,6 @@ df = pd.DataFrame()
 directory = results_directory+"cstates"
 for file in os.listdir(directory):
     add_latencies(df, directory, os.fsdecode(file))
-offset = df["C0"].mean()
-for column in df:
-    df[column] -= offset
 df = df.reindex(sorted(df.columns), axis=1)
 plot = df.plot.box()
 plot.set_ylim(ymin=0)
