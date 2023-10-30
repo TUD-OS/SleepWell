@@ -16,6 +16,12 @@ To avoid the Intel IOMMU driver interfering with our setup (specifically the rou
 intremap=off
 ```
 
+Another issue that could arise is that under certain conditions linux force disables the HPET. If this occured can be seen in the startup messages. Since we need the HPET at the moment, you need to force reenable it:
+
+```
+hpet=force
+```
+
 ## 2. Compile kernel module and measure
 
 Our usual setup for using and developing this measurement tool was having an additional system where the development and also the evaluation of results takes place.
