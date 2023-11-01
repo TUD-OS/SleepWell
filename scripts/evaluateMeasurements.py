@@ -3,6 +3,7 @@ import os
 import pandas as pd
 import matplotlib.pyplot as plt
 import matplotlib.ticker as mtick
+import re
 
 plt.rcParams['mathtext.fontset'] = 'cm'
 plt.rcParams['font.family'] = 'STIXGeneral'
@@ -20,9 +21,9 @@ df = pd.DataFrame()
 directory = results_directory+"cstates"
 for file in os.listdir(directory):
     add_pkg_energy_consumption(df, directory, os.fsdecode(file))
-df = df.reindex(sorted(df.columns), axis=1)
+df = df.reindex(sorted(df.columns, key=lambda index: int(re.findall(r'\d+', index)[0])), axis=1)
 plot = df.plot.box()
-plot.set_ylim(ymin=0, ymax=6)
+plot.set_ylim(ymin=0)
 plot.set_ylabel("Joule")
 plot.figure.savefig('output/pkg_power_consumption_by_cstate.pdf')
 
@@ -32,7 +33,7 @@ for file in os.listdir(directory):
     add_pkg_energy_consumption(df, directory, os.fsdecode(file))
 df = df.reindex(sorted(df.columns), axis=1)
 plot = df.plot.box()
-plot.set_ylim(ymin=0, ymax=7)
+plot.set_ylim(ymin=0)
 plot.set_ylabel("Joule")
 plot.figure.savefig('output/no_mwait.pdf')
 
@@ -45,7 +46,7 @@ df = pd.DataFrame()
 directory = results_directory+"cstates"
 for file in os.listdir(directory):
     add_latencies(df, directory, os.fsdecode(file))
-df = df.reindex(sorted(df.columns), axis=1)
+df = df.reindex(sorted(df.columns, key=lambda index: int(re.findall(r'\d+', index)[0])), axis=1)
 plot = df.plot.box()
 plot.set_ylim(ymin=0)
 plot.set_ylabel("microseconds")
@@ -84,7 +85,7 @@ for file in os.listdir(directory):
 df = pd.DataFrame({'unspecified': unspecified,
                    'pc2': pc2, 'pc3': pc3, 'pc6': pc6, 'pc7': pc7}, 
                    index=index)
-df.sort_index(axis=0, inplace=True)
+df = df.reindex(sorted(index, key=lambda index: int(re.findall(r'\d+', index)[0])))
 plot = df.plot.bar(stacked=True)
 plot.yaxis.set_major_formatter(mtick.PercentFormatter(1.0))
 plt.tight_layout()
@@ -148,7 +149,7 @@ for file in os.listdir(directory):
 df = pd.DataFrame({'unspecified': unspecified, 'unhalted': unhalted,
                    'cc3': cc3, 'cc6': cc6, 'cc7': cc7}, 
                    index=index)
-df.sort_index(axis=0, inplace=True)
+df = df.reindex(sorted(index, key=lambda index: int(re.findall(r'\d+', index)[0])))
 plot = df.plot.bar(stacked=True)
 plot.yaxis.set_major_formatter(mtick.PercentFormatter(1.0))
 plt.tight_layout()
