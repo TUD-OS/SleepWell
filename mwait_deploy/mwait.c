@@ -290,7 +290,8 @@ static inline void evaluate_cpu(int this_cpu)
     per_cpu(final_c7, this_cpu) -= per_cpu(start_c7, this_cpu);
 }
 
-static bool is_cpu_model(u32 family, u32 model) {
+static bool is_cpu_model(u32 family, u32 model)
+{
     return cpu_family == family && cpu_model == model;
 }
 
@@ -532,7 +533,8 @@ static void set_cpu_info(u32 a)
     }
 }
 
-static void per_cpu_init(void* info) {
+static void per_cpu_init(void *info)
+{
     int err = 0;
 
     u64 ia32_fixed_ctr_ctrl;
@@ -546,7 +548,8 @@ static void per_cpu_init(void* info) {
     ia32_perf_global_ctrl |= 1l << 34;
     err |= wrmsrl_safe(IA32_PERF_GLOBAL_CTRL, ia32_perf_global_ctrl);
 
-    if(err) {
+    if (err)
+    {
         printk(KERN_ERR "WARNING: Could not enable 'unhalted' register.\n");
     }
 }
@@ -586,12 +589,16 @@ static int mwait_init(void)
 
     on_each_cpu(per_cpu_init, NULL, 1);
 
-    if(mwait_hint==NULL) {
+    if (mwait_hint == NULL)
+    {
         calculated_mwait_hint = 0;
         calculated_mwait_hint += target_subcstate & MWAIT_SUBSTATE_MASK;
         calculated_mwait_hint += (get_cstate_hint() & MWAIT_CSTATE_MASK) << MWAIT_SUBSTATE_SIZE;
-    } else {
-        if(kstrtou32(mwait_hint, 0, &calculated_mwait_hint)) {
+    }
+    else
+    {
+        if (kstrtou32(mwait_hint, 0, &calculated_mwait_hint))
+        {
             calculated_mwait_hint = 0;
             printk(KERN_ERR "Interpreting mwait_hint failed, falling back to hint 0x0!\n");
         }
