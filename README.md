@@ -1,96 +1,109 @@
-# Usage
+# Prior Remarks
 
-Before being able to make measurements on a real machine, some setup is required:
+This guide's goal is to enable you to utilize our measurement framework on your machines.
+That being said, it is still in development and has so far not been tested on a lot of different systems.
+Experience has shown that some tinkering is likely necessary when trying new machines.
+At the end of this guide, under [Troubleshooting](#Troubleshooting), some problems we already encountered as well as their solutions are listed.
+Please try those if you have trouble using the framework!
 
-## 1. Compile and install custom linux kernel
 
-Since some small changes to the linux kernel code were necessary to achieve the required results, a custom kernel has to be installed first.
-The kernel source code can be found in the submodule ```linuxMWAIT``` in the root of this repository.
-Since there are multiple well documented ways to compile and install a custom linux kernel on a machine this README won`t give any further details at this point.
+# General Setup
 
-### Notes for starting on a real machine
+Using our measurement framework in its' current form requires 3 steps to be taken, namely:
 
-To avoid the Intel IOMMU driver interfering with our setup (specifically the routing of the HPET interrupt) it might be necessary to use the following startup parameter:
+1. Building and installing our custom linux kernel
+2. Deploying and compiling our kernel module
+3. Measuring
 
+These steps will be described in more detail further into this document.
+
+The way we used the framework so far is to have 2 machines, one that is the one to be measured (aka ```measurebox```),
+and another one that is in charge of controlling the measuring process and evaluating the results (aka ```controllbox```).
+Technically you can do all that on one machine, but this approach has advantages when measuring multiple machines and for development.
+Since this guide as well as our utilities are geared towards splitting these tasks between two systems, we recommend you do to.
+If you want to use our scripts, the systems need to be able to reach each other over IPv4.
+
+
+# Setup Steps
+
+## 1. Installing our custom linux kernel
+
+Since some small changes to the linux kernel code were necessary to achieve the required results,
+a custom kernel has to be installed on the ```measurebox``` for it to work with our kernel module.
+For this, you need the custom kernel source code in the ```linuxMWAIT``` submodule, that is based on linux version 6.2.9.
+Please download it, compile the kernel as appropriate for your machine and install it.
+
+On debian this process could look something like this:
+```console
+root@measurebox:~# git clone https://github.com/obibabobi/linuxMWAIT.git
+root@measurebox:~# cd linuxMWAIT
+root@measurebox:~/linuxMWAIT# cp /boot/config-$(uname --kernel-release) .config
+root@measurebox:~/linuxMWAIT# make olddefconfig
+root@measurebox:~/linuxMWAIT# make
+root@measurebox:~/linuxMWAIT# make modules_install
+root@measurebox:~/linuxMWAIT# make install
+```
+Then reboot into our newly installed kernel.
+
+
+## 2. Deploy and compile the kernel module
+
+In this step, the files necessary for compiling the kernel module and executing a measurement run need to be transferred from the ```controllbox``` to the ```measurebox```.
+These files can be found in the ```mwait_deploy``` folder.
+Afterwards, the kernel module needs to be compiled on the ```measurebox``` in preparation for its' usage.
+
+The ```deploy.sh``` script was created to facilitate this process and can be used like this:
+```console
+user@controllbox:~/MWAITmeasurements# ./deploy.sh <IPv4 of the measurebox>
+```
+It copies the ```mwait_deploy``` folder to the ```measurebox``` and starts the compilation.
+
+
+## 3. Measure
+
+The last step is to use the compiled kernel module to take measurements.
+This is mainly achieved by starting the ```mwait_deploy/measure.sh``` script on the measurebox.
+
+For this step again a script (```measure.sh```) exists, which can be used as follows:
+```console
+user@controllbox:~/MWAITmeasurements# ./measure.sh <IPv4 of the measurebox>
+```
+It starts the copy of ```mwait_deploy/measure.sh``` on the ```measurebox``` that was transferred during the deployment step.
+Afterwards it copies the results from the ```measurebox``` to the ```output``` folder on the ```controllbox```.
+Lastly, it calls the script ```scripts/evaluateMeasurements.py``` to generate some simple visualisations into the ```output``` folder.
+
+
+# Further Notes
+
+## Configuring the measurements
+
+Which specific circumstances should be measured during a measurement run can be configured in the ```mwait_deploy/measure.sh``` script.
+Depending on which (Sub-)C-States / how many hardware threads are available on you machine, you may need to adjust it.
+
+New measurements are added by calling the ```measure``` function.
+This function's parameters are the name of the specific measurement, then the parameters to be used when inserting the kernel module and finally the name of the folder to put the results in.
+For information on the available parameters of the kernel module, please execute ```modinfo``` on the compiled module.
+
+
+# Troubleshooting
+
+## Kernel module does not terminate
+
+The most likely cause for this behavior is that the NMIs that should terminate the measurements never reach the kernel module.
+
+
+A possible reason for this is that something is interfering with the delivery of the NMIs we configured the HPET to generate.
+A likely suspect in that case is the Intel IOMMU driver.
+Please try the following kernel startup parameter:
 ```
 intremap=off
 ```
 
-Another issue that could arise is that under certain conditions linux force disables the HPET. If this occured can be seen in the startup messages. Since we need the HPET at the moment, you need to force reenable it:
 
+## Kernel NULL pointer dereference
+
+If, on insertion of the kernel module, it is immediately killed because of a "Kernel NULL pointer dereference", the kernel may have disabled the HPET on startup.
+Please try force-enabling the HPET using the following kernel startup parameter:
 ```
 hpet=force
-```
-
-## 2. Compile kernel module and measure
-
-Our usual setup for using and developing this measurement tool was having an additional system where the development and also the evaluation of results takes place.
-The system under measurement (which is the one which needs the custom kernel) only needs to compile the kernel module and insert it.
-To facilitate this process, there are the 2 following scripts in the root of this repository:
-
-### ```deploy.sh```
-
-This script takes the IPv4 address of the system under measure as its' only parameter.
-Its' purpose is to copy all the files needed on the system under measurement to it and compile the kernel module.
-These files are prepared in the ```mwait_deploy``` folder.
-
-### ```measure.sh```
-
-This script as well takes the IPv4 address of the system to be measured as its' only parameter.
-It starts the script ```mwait_deploy/measure.sh``` that was transfered during the last execution of ```deploy.sh``` on the target machine.
-After this step has been successfully completed, it copies the measurement results from the measured machine to the ```output``` folder.
-As a last step it calls the ```scripts/evaluateMeasurements.py``` script to immediately produce some diagrams.
-These can also be found in the ```output``` folder.
-
-# Configuring the measurement
-
-The script ```mwait_deploy/measure.sh``` describes what happens during a measurement run.
-Apart from some setup and cleanup, this also includes the specific circumstances that will be measured, e.g. which C-State will be entered or how many threads will execute mwait.
-By default, all the C-States used by the cpuidle driver on a Haswell system are measured, as well as each combination of threads doing mwait/threads in a busy loop.
-Additionally, the cpuidle driver C-States for a Skylake system are configured, but commented out, to enable an easy switch between the two generations.
-Further measurements can be specified here by calling the measure function.
-This function's parameters are the name of the specific measurement, then the parameters to be used when inserting the kernel module and finally the name of the folder to put the results in.
-For more information on the available parameters of the kernel module, please execute modinfo on the compiled module.
-
-# Development
-
-To ease development, this project was set up to work with ```buildroot```, a software that can create bootable kernels and filesystem images from scratch.
-Since this was only used with emulators (namely ```qemu```), and those usually don't fully support mwait or machine specific features such as MSRs, this was only really useful in the early stages of development.
-Despite this it is still possible to use the project on an emulator following these steps:
-
-## Setup (first use only)
-
-```sh
-cd buildroot
-make BR2_EXTERNAL="$(pwd)/../mwait_module" qemu_x86_64_defconfig
-```
-
-In ```.config``` set:
-* BR2_PACKAGE_MWAIT_MODULE=y
-* BR2_ROOTFS_OVERLAY="../overlay"
-* BR2_PACKAGE_OVERRIDE_FILE="../buildroot_override"
-* BR2_PACKAGE_HOST_LINUX_HEADERS_CUSTOM_6_1=y
-* BR2_ENABLE_DEBUG=y
-
-```sh
-make
-```
-
-## Compile Kernel Module
-
-```sh
-make mwait_module-dirclean && make
-```
-
-## Compile Kernel
-
-```sh
-make linux-rebuild
-```
-
-## Starting Qemu
-
-```sh
-qemu-system-x86_64 -M pc -kernel output/images/bzImage -drive file=output/images/rootfs.ext2,if=virtio,format=raw \
-    -append 'root=/dev/vda console=ttyS0' -net nic,model=virtio -nographic -serial mon:stdio -net user -smp 2
 ```
