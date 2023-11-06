@@ -34,7 +34,7 @@ MODULE_PARM_DESC(cpus_mwait, "Number of CPUs that should do mwait instead of a b
 static char *cpu_selection = "core";
 module_param(cpu_selection, charp, 0);
 MODULE_PARM_DESC(cpu_selection, "How the cpus doing mwait should be selected. Supported are 'core' and 'cpu_nr'.");
-static char *mwait_hint = "";
+static char *mwait_hint = NULL;
 module_param(mwait_hint, charp, 0);
 MODULE_PARM_DESC(mwait_hint, "The hint mwait should use. If this is given, target_cstate and target_subcstate are ignored.");
 static int target_cstate = 1;
@@ -586,7 +586,7 @@ static int mwait_init(void)
 
     on_each_cpu(per_cpu_init, NULL, 1);
 
-    if(*mwait_hint==NULL) {
+    if(mwait_hint==NULL) {
         calculated_mwait_hint = 0;
         calculated_mwait_hint += target_subcstate & MWAIT_SUBSTATE_MASK;
         calculated_mwait_hint += (get_cstate_hint() & MWAIT_CSTATE_MASK) << MWAIT_SUBSTATE_SIZE;

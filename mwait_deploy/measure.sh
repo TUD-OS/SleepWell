@@ -26,35 +26,22 @@ function measure {
 # measurements
 MEASUREMENT_NAME=cstates
 mkdir $RESULTS_DIR/$MEASUREMENT_NAME
-
-# Skylake
-#measure "C0" "target_cstate=0" $MEASUREMENT_NAME
-#measure "C1" "target_cstate=1" $MEASUREMENT_NAME
-#measure "C1E" "target_cstate=1 target_subcstate=1" $MEASUREMENT_NAME
-#measure "C3" "target_cstate=2" $MEASUREMENT_NAME
-#measure "C6" "target_cstate=3" $MEASUREMENT_NAME
-#measure "C7s" "target_cstate=4 target_subcstate=3" $MEASUREMENT_NAME
-#measure "C8" "target_cstate=5" $MEASUREMENT_NAME
-
-# Haswell
 measure "C0" "target_cstate=0" $MEASUREMENT_NAME
-measure "C1" "target_cstate=1" $MEASUREMENT_NAME
-measure "C1E" "target_cstate=1 target_subcstate=1" $MEASUREMENT_NAME
-measure "C3" "target_cstate=2" $MEASUREMENT_NAME
-measure "C6" "target_cstate=3" $MEASUREMENT_NAME
-measure "C7s" "target_cstate=4 target_subcstate=2" $MEASUREMENT_NAME
+for STATE in /sys/devices/system/cpu/cpu0/cpuidle/state*;
+do
+    NAME=$(< "$STATE"/name);
+    [[ "$NAME" == 'POLL' ]] && continue;
+    DESC=$(< "$STATE"/desc);
+    MWAIT_HINT=${DESC#MWAIT };
+    measure $NAME "mwait_hint=$MWAIT_HINT" $MEASUREMENT_NAME
+done
 
 MEASUREMENT_NAME=cores_mwait
 mkdir $RESULTS_DIR/$MEASUREMENT_NAME
-measure "0" "cpus_mwait=0" $MEASUREMENT_NAME
-measure "1" "cpus_mwait=1" $MEASUREMENT_NAME
-measure "2" "cpus_mwait=2" $MEASUREMENT_NAME
-measure "3" "cpus_mwait=3" $MEASUREMENT_NAME
-measure "4" "cpus_mwait=4" $MEASUREMENT_NAME
-measure "5" "cpus_mwait=5" $MEASUREMENT_NAME
-measure "6" "cpus_mwait=6" $MEASUREMENT_NAME
-measure "7" "cpus_mwait=7" $MEASUREMENT_NAME
-measure "8" "cpus_mwait=8" $MEASUREMENT_NAME
+for ((i=0; i<=$(getconf _NPROCESSORS_ONLN); i++));
+do
+    measure $i "cpus_mwait=$i" $MEASUREMENT_NAME
+done
 
 # cleanup
 echo $NMI_WATCHDOG > /proc/sys/kernel/nmi_watchdog
