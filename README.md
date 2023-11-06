@@ -78,7 +78,7 @@ Lastly, it calls the script ```scripts/evaluateMeasurements.py``` to generate so
 ## Configuring the measurements
 
 Which specific circumstances should be measured during a measurement run can be configured in the ```mwait_deploy/measure.sh``` script.
-Depending on which (Sub-)C-States / how many hardware threads are available on you machine, you may need to adjust it.
+By default, the (Sub-)C-States used by the cpuidle driver are measured, as well as each combination of hardware threads doing mwait / doing an idle loop.
 
 New measurements are added by calling the ```measure``` function.
 This function's parameters are the name of the specific measurement, then the parameters to be used when inserting the kernel module and finally the name of the folder to put the results in.
