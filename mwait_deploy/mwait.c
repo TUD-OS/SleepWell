@@ -34,6 +34,9 @@ MODULE_PARM_DESC(cpus_mwait, "Number of CPUs that should do mwait instead of a b
 static char *cpu_selection = "core";
 module_param(cpu_selection, charp, 0);
 MODULE_PARM_DESC(cpu_selection, "How the cpus doing mwait should be selected. Supported are 'core' and 'cpu_nr'.");
+static char *mwait_hint = "";
+module_param(mwait_hint, charp, 0);
+MODULE_PARM_DESC(mwait_hint, "The hint mwait should use. If this is given, target_cstate and target_subcstate are ignored.");
 static int target_cstate = 1;
 module_param(target_cstate, int, 0);
 MODULE_PARM_DESC(target_cstate, "The C-State that gets passed to mwait as a hint.");
@@ -92,7 +95,7 @@ static u32 cpu_model;
 static u32 cpu_family;
 static u32 rapl_unit;
 static unsigned cpus_present;
-static u32 mwait_hint;
+static u32 calculated_mwait_hint;
 static int apic_id_of_cpu0;
 static int hpet_pin;
 static u32 hpet_period;
@@ -405,7 +408,7 @@ static void do_mwait(int this_cpu)
     while (per_cpu(trigger, this_cpu))
     {
         asm volatile("monitor;" ::"a"(&dummy), "c"(0), "d"(0));
-        asm volatile("mwait;" ::"a"(mwait_hint), "c"(0));
+        asm volatile("mwait;" ::"a"(calculated_mwait_hint), "c"(0));
         per_cpu(wakeups, this_cpu) += 1;
     }
 }
@@ -583,10 +586,17 @@ static int mwait_init(void)
 
     on_each_cpu(per_cpu_init, NULL, 1);
 
-    mwait_hint = 0;
-    mwait_hint += target_subcstate & MWAIT_SUBSTATE_MASK;
-    mwait_hint += (get_cstate_hint() & MWAIT_CSTATE_MASK) << MWAIT_SUBSTATE_SIZE;
-    printk(KERN_INFO "Using MWAIT hint 0x%x.", mwait_hint);
+    if(*mwait_hint==NULL) {
+        calculated_mwait_hint = 0;
+        calculated_mwait_hint += target_subcstate & MWAIT_SUBSTATE_MASK;
+        calculated_mwait_hint += (get_cstate_hint() & MWAIT_CSTATE_MASK) << MWAIT_SUBSTATE_SIZE;
+    } else {
+        if(kstrtou32(mwait_hint, 0, &calculated_mwait_hint)) {
+            calculated_mwait_hint = 0;
+            printk(KERN_ERR "Interpreting mwait_hint failed, falling back to hint 0x0!\n");
+        }
+    }
+    printk(KERN_INFO "Using MWAIT hint 0x%x.", calculated_mwait_hint);
 
     measurement_count = measurement_count < MAX_NUMBER_OF_MEASUREMENTS
                             ? measurement_count
